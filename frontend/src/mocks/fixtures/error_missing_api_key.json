@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "missing_api_key",
+    "message": "OPENROUTER_API_KEY is not set on the backend",
+    "details": null
+  }
+}

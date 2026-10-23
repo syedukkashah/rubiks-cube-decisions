@@ -1,0 +1,44 @@
+{
+  "puzzles": [
+    {
+      "puzzle_id": "pz_01",
+      "suite": "primary",
+      "scramble_moves": [
+        "R'",
+        "L2",
+        "B",
+        "F"
+      ],
+      "facelets": "RRRDUBLLLDRFURDBRUBBBFFFUUURRRUDFLLLBLUULDDLFDDDBBBFFF",
+      "optimal_distance": 4,
+      "created_at": "2026-10-24T09:29:00Z"
+    },
+    {
+      "puzzle_id": "pz_02",
+      "suite": "primary",
+      "scramble_moves": [
+        "D",
+        "R",
+        "D'",
+        "R2",
+        "B"
+      ],
+      "facelets": "UFFUUDUUDRRLRRDRRDFFBFFUFRURBFDDFLLLBLLULLULDDDRBBBBBB",
+      "optimal_distance": 5,
+      "created_at": "2026-10-24T09:29:00Z"
+    },
+    {
+      "puzzle_id": "pz_03",
+      "suite": "primary",
+      "scramble_moves": [
+        "L2",
+        "D'",
+        "B",
+        "F'"
+      ],
+      "facelets": "RRFDUURRBDRUDRUDBUFFRFFRBBRLLFDDDLLBULUULUDFDLBBLBBLFF",
+      "optimal_distance": 4,
+      "created_at": "2026-10-24T09:29:00Z"
+    }
+  ]
+}
