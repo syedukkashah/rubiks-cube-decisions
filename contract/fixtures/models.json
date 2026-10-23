@@ -1,0 +1,32 @@
+{
+  "models": [
+    {
+      "id": "typesafe/jev-1.13",
+      "label": "Jev 1.13",
+      "category": "decision",
+      "interface": "decisions_api",
+      "available": true
+    },
+    {
+      "id": "openai/gpt-6-luna-decisions",
+      "label": "GPT-6 Luna Decisions",
+      "category": "decision",
+      "interface": "decisions_api",
+      "available": true
+    },
+    {
+      "id": "cloudflare/clef",
+      "label": "Cloudflare Clef",
+      "category": "decision",
+      "interface": "decisions_api",
+      "available": true
+    },
+    {
+      "id": "anthropic/claude-opus-5.5",
+      "label": "Claude Opus 5.5",
+      "category": "frontier",
+      "interface": "chat_completions",
+      "available": true
+    }
+  ]
+}
