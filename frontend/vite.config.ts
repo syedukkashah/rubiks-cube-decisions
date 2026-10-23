@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': { target: backend, changeOrigin: true },
       },
+      // Mock mode imports the shared fixtures from ../contract.
+      fs: { allow: ['.', '../contract'] },
     },
     test: {
       environment: 'jsdom',
