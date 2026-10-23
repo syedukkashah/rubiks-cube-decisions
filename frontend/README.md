@@ -16,7 +16,7 @@ cp .env.example .env      # then fill in VITE_STUDENT_NAME and VITE_STUDENT_ROLL
 | Variable | Default | Purpose |
 |---|---|---|
 | `VITE_API_BASE_URL` | `/api/v1` | API base path. The dev server proxies `/api` to `BACKEND_URL`. |
-| `VITE_USE_MOCKS` | `false` | `true` replays the recorded fixture run in `src/mocks/fixtures`. No backend needed. |
+| `VITE_USE_MOCKS` | `false` | `true` replays the recorded fixture run in `/contract/fixtures`. No backend needed. |
 | `VITE_MOCK_SCENARIO` | `default` | Mock only. `missing_api_key` simulates a backend without `OPENROUTER_API_KEY`. |
 | `VITE_STUDENT_NAME` / `VITE_STUDENT_ROLL` | (empty) | Identity badge shown on every screen. If either is empty, the badge shows a red warning instead. |
 | `BACKEND_URL` | `http://localhost:8000` | Dev-server proxy target. It is not exposed to the browser. |
@@ -64,7 +64,10 @@ result equals the backend's own snapshots.
 
 ## Mock fixtures
 
-`src/mocks/fixtures/*.json` is one recorded run: 3 primary puzzles × 4 models = 12 trials and 198
+Mock mode and the tests read the shared `/contract/fixtures/*.json` (via `src/mocks/fixtures.ts`).
+Only `src/mocks/fixtures/run_playback.json` (replay timing) is frontend-specific.
+
+The fixtures are one recorded run: 3 primary puzzles × 4 models = 12 trials and 198
 events. It covers solved, move-limit and error outcomes, illegal and malformed outputs, a timeout
 retry, a mid-run snapshot checkpoint, and stats after every finished trial. The facelet strings and
 BFS optima were generated offline with a cube model that is not part of this frontend.
@@ -72,8 +75,6 @@ BFS optima were generated offline with a cube model that is not part of this fro
 In mock mode, settings are sent and validated, but playback is always this recording. Mock runs are
 kept in `localStorage`, so a reload or a new tab still finds them.
 
-When the shared `/contract/fixtures` exists (milestone M0), point `src/mocks/fixtures.ts` at it and
-delete the local copies.
 
 ## Contract notes for the backend (proposed `docs/HANDOFF.md` entries)
 
