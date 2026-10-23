@@ -443,6 +443,7 @@ Available while the run is in progress (partial) and after it ends. Stats are co
 
 - One `models[]` entry per model in the run, same order as `config.model_ids`.
 - `total_moves`: sum of `moves_used` over the model's trials.
+- `success_rate_pct`, `avg_move_latency_ms`, `avg_total_time_s`, `avg_moves_per_trial` and `avg_optimality_gap` are `number | null`: `null` while there is nothing to average yet (e.g. no finished trials, or no accepted moves, during a partial run). Counts (`trials`, `solved_trials`, `total_moves`, `invalid_move_count`, `retry_count`, `timeout_count`) are always integers.
 - Ties in `questions_answered` resolve to the model listed first; a field is `null` if it cannot be determined yet.
 - `fastest_model_id` = lowest `avg_move_latency_ms`. `best_optimality_gap_model_id` = lowest non-null `avg_optimality_gap`. `fastest_is_also_best_quality` is `true` only if the fastest model also has both the highest `success_rate_pct` and the lowest `avg_optimality_gap`.
 
