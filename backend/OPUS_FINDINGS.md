@@ -275,3 +275,30 @@ written analysis: how much thinking Opus at `low` needs on the failed warm-up st
 - No document reviewed describes per-provider differences in Opus thinking length.
 - None of the offline tests show the real model works; they only pin request shape,
   classification and accounting.
+
+## Addendum (2026-10-25): 512-token probe result and the human's decision
+
+- **Probe.** The optional section 7 probe was approved and run once
+  (`--diagnose-opus-warmup`, `CHAT_MAX_TOKENS=512`, seed-101 warm-up state). Opus
+  answered `D2` with prompt 491, completion 266, reasoning 255, `finish_reason: stop`,
+  cost $0.007284. So at effort `low` this state needed about 255 reasoning tokens,
+  which explains both 128-token truncations. It is one sample on one state; seed 100
+  still truncated at 512. Ledger after the probe: 103 attempts, $0.055307648.
+- **Decision.** The human then decided: "yes, spend $2 for a real session, record
+  everything on the backend so that every re-run is a [replay]". This replaces D1–D3
+  above with a variant of D1 plus D3: the spend ceiling may be raised to $2.00 via the
+  environment (code default still $1.10, hard maximum $2.00), and the
+  `opus_truncation` gate may be set to `report` (`OPUS_TRUNCATION_GATE`, default `stop`).
+  Truncations remain counted Opus failures.
+- **Session configuration (prepared, not run).** `CHAT_MAX_TOKENS=336`: the largest
+  multiple of 16 for which warm-up + 5 primary passes the worst-case pre-check with at
+  least $0.05 left ($1.840903812 against $1.944692352). Gate baselines
+  `EXPECTED_COST_WARMUP=0.22` and `EXPECTED_COST_PRIMARY=1.10` so the cost gate does
+  not misfire on a session where Opus answers. `ALLOW_LIVE_RERUN=true` because the
+  saved warm-up is a G12 duplicate (the cap and ceiling are not part of the duplicate
+  signature). Details and arithmetic: `README.md`, "Approved $2 live session";
+  launcher: `scripts/run_live_session.ps1`.
+- **Still open.** 336 is budget-derived, not calibrated (the 1.5× rule would ask for
+  400). The $2 ceiling exceeds the assignment's $1.20 and must be disclosed. Whether
+  Opus answers reliably on the primary states is unknown until the session runs. The
+  benchmark and the submission are **not** complete.
