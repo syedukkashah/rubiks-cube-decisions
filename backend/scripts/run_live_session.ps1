@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-  Start the backend for the ONE human-approved (2026-10-25) paid live benchmark session.
+  Start the backend for the SECOND attempt at the ONE human-approved (2026-10-25) paid
+  live benchmark session.
 
 .DESCRIPTION
   Sets process-only environment overrides, then starts uvicorn on 127.0.0.1:8000 in
@@ -12,18 +13,23 @@
   live action is confirmed (POST /api/v1/benchmark/sessions with
   {"source":"live","confirm_cost":true,"include_extension":false}).
 
-  Values and their arithmetic are documented in backend\README.md
-  ("Approved $2 live session (2026-10-25)"):
-    MAX_SPEND_USD=2.00          human-approved raise for this session (hard maximum 2.00)
-    CHAT_MAX_TOKENS=336         largest multiple of 16 whose required-session worst case
-                                ($1.840903812) leaves >= $0.05 of the $1.944692352 remaining
-    ALLOW_LIVE_RERUN=true       the saved seed-101 live warm-up is a G12 duplicate
-    OPUS_TRUNCATION_GATE=report truncations are reported and counted, but do not stop
-    EXPECTED_COST_WARMUP=0.22   1.5x = $0.33 >= worst-case warm-up $0.306817302
-    EXPECTED_COST_PRIMARY=1.10  1.5x = $1.65 >= worst-case primary $1.534086510
+  The first attempt (cap 336, sess_e92516433a334c6db0adbacfec3fc4e2) failed after
+  $0.067 because the OpenRouter account had no credit. Top the account up first.
 
-  After the session, stop this server (Ctrl+C) and restart normally so
-  ALLOW_LIVE_RERUN, the raised ceiling and report mode are no longer in effect.
+  Values and their arithmetic are documented in backend\README.md
+  ("Second attempt: cap 512 with rolling admission"):
+    MAX_SPEND_USD=2.00          human-approved session ceiling (hard maximum 2.00)
+    CHAT_MAX_TOKENS=512         the code's hard maximum: the truncation fix
+    ALLOW_LIVE_RERUN=true       completed seed-101 live warm-ups exist in the history
+    OPUS_TRUNCATION_GATE=report truncations are reported and counted, but do not stop
+    LIVE_ADMISSION=rolling      admit if one puzzle's worst case ($0.423) + $0.05 fits;
+                                re-check before every puzzle and step (human-approved)
+    EXPECTED_COST_WARMUP=0.29   1.5x = $0.435 >= worst-case warm-up $0.422996442
+    EXPECTED_COST_PRIMARY=1.41  1.5x = $2.115 >= worst-case primary $2.114982210
+    BENCHMARK_TIMEOUT_S=20      the API maximum; same per-call timeout for all models
+
+  After the session, stop this server (Ctrl+C) and restart normally so the
+  overrides are no longer in effect.
 
 .PARAMETER OpusTruncationGate
   'report' (default for this session) or 'stop' (the code default).
@@ -53,11 +59,13 @@ if (Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyCont
 $overrides = [ordered]@{
     MOCK_MODELS           = 'false'
     MAX_SPEND_USD         = '2.00'
-    CHAT_MAX_TOKENS       = '336'
+    CHAT_MAX_TOKENS       = '512'
     ALLOW_LIVE_RERUN      = 'true'
     OPUS_TRUNCATION_GATE  = $OpusTruncationGate
-    EXPECTED_COST_WARMUP  = '0.22'
-    EXPECTED_COST_PRIMARY = '1.10'
+    LIVE_ADMISSION        = 'rolling'
+    EXPECTED_COST_WARMUP  = '0.29'
+    EXPECTED_COST_PRIMARY = '1.41'
+    BENCHMARK_TIMEOUT_S   = '20'
 }
 if ($CorsOrigins) {
     $overrides['CORS_ORIGINS'] = $CorsOrigins

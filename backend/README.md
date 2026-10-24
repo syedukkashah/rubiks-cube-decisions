@@ -44,6 +44,8 @@ Both are for preview/testing only, never evidence about the real models.
 | `EXPECTED_COST_PRIMARY` | `0.33` | Primary gate baseline in USD |
 | `EXPECTED_COST_EXTENSION` | `0.20` | Extension gate baseline in USD |
 | `OPUS_TRUNCATION_GATE` | `stop` | `stop`: the `opus_truncation` gate stops a live session. `report`: it is still computed and recorded in `runs[].gate`, but does not stop the session |
+| `LIVE_ADMISSION` | `full` | `full`: a live run/session is admitted only if its whole worst case fits the remaining budget. `rolling` (human-approved for one session, see "Second attempt"): one puzzle's worst case + $0.05 must fit at admission, before every puzzle of a sequential run and for the next step |
+| `BENCHMARK_TIMEOUT_S` | `15` | Per-call timeout of the fixed benchmark plan, identical for all four models; 1–20 and at most `MAX_TIMEOUT_S`. Recorded in each run's config and `execution_config` |
 
 Non-numeric, negative and non-finite numeric settings fail at startup. Boolean
 settings accept only `true`/`false`. Fractional call/retry/token limits are rejected.
@@ -317,7 +319,8 @@ the backend so that every re-run is a [replay]". Evidence behind it: one approve
 `--diagnose-opus-warmup` probe at cap 512 on the failed seed-101 warm-up state returned
 `D2` with prompt 491, completion 266, reasoning 255, `finish_reason: stop`, $0.007284.
 At cap 128 the same state truncated twice. This is one sample on one state, not a
-calibration; seed 100 truncated even at 512. **The session has not run yet.**
+calibration; seed 100 truncated even at 512. **Superseded:** this cap-336 session ran
+once and failed (no account credit); the second attempt below uses cap 512.
 
 **Budget.** Ledger before the session: 103 attempts, $0.055307648 accounted (including
 the probe and $0.022 of conservative reservations). Remaining at `MAX_SPEND_USD=2.00`:
@@ -375,6 +378,109 @@ terminal history. They do not block a new session (only active sessions/runs do)
 remain listed by `GET /runs` and reachable by session URL, and are never part of the
 new recording. Do not delete them; they are the evidence of the failed 128 attempt.
 
+### Second attempt: cap 512 with rolling admission (2026-10-25)
+
+**First attempt (failed, terminal history).** `sess_e92516433a334c6db0adbacfec3fc4e2`
+ran with cap 336 and `OPUS_TRUNCATION_GATE=report`. Warm-up
+`run_edcb6b0319f544e8a26fc83990d2f729` **completed**: the three Decisions models played
+30 moves each; both Opus attempts on the first state truncated (`finish_reason:
+length`, 336 reasoning tokens, empty content, $0.008684 each, 7.5–8.3 s), so the Opus
+trial ended `error` (`malformed_response` twice). The gate reported `opus_truncation`
+and, in report mode, passed. Primary `run_acb06ad4715544768df3040c735042a2` **failed**:
+on puzzle 1 the Decisions models played 30 moves and Opus answered 16 moves
+(`finish_reason: stop`, 10–11 output tokens, 0 reasoning, ~$0.0022 per call, 2.2–2.9 s);
+the 17th Opus request returned "insufficient credits" because the OpenRouter
+**account** had no credit (fatal; all remaining trials `upstream_error`). Gate
+`run_aborted`, session `failed`, nothing recorded. Session cost $0.066881598. Ledger
+after it: 302 attempts, **$0.122189246** accounted (including $0.03112 of six
+conservative reservation rows), so **$1.877810754** remains under `MAX_SPEND_USD=2.00`.
+The human is topping the account up separately; the key limit is $2.20.
+
+**Truncation evidence and decision.** The seed-101 warm-up state answered in 266
+completion tokens at cap 512 (probe), but truncated at 336 on both attempts (and at
+128 twice); calibration seed 100 truncated even at 512; primary puzzle 1 needed no
+reasoning at all. Reasoning length varies a lot by state and sample, so the human
+decided to "fix the truncation problem" with the largest cap the rules allow:
+**`CHAT_MAX_TOKENS=512`** (the code's hard maximum; never higher). Effort stays `low`
+and the prompt is unchanged.
+
+**Why the admission rule had to change.** At cap 512, per attempt in micro-dollars with
+the ledger's planning inputs (Jev 627, Luna 303, Clef 506, Opus 600 floor):
+26.334 + 30.3 + 121.44 + (600×4 + 512×20 = 12,640) = 12,818.074. One puzzle, all four
+models, 33 attempts each: **$0.422996442**. Default (`full`) admission prices the whole
+required session: 6 × $0.422996442 = **$2.537978652** > $1.877810754, so it can never
+admit a 512 session under $2.00. Realistic cost is far lower (a truncated Opus call at
+512 costs ~$0.0122–0.0126, a typical answer $0.0022–0.0075), and the per-call ledger
+already guarantees the ceiling cannot be exceeded.
+
+**`LIVE_ADMISSION=rolling` (human-approved deviation, this session only).**
+
+- *Admission* (`POST /benchmark/sessions` live, `GET /benchmark` `sources.live`,
+  `POST /runs`): remaining ≥ one puzzle's worst case + $0.05 margin =
+  **$0.472996442** (against $1.877810754 now).
+- *Before every puzzle of a run*, including the first puzzle of each step: the same
+  rule. If it fails, the run stops before any request for that puzzle: its trials and
+  all later ones end `error` with code `conflict`, "Remaining live budget does not
+  cover the next puzzle"; the run is `failed`, the gate reports `run_aborted`, the
+  session is `failed`, and nothing is recorded.
+- *Step gate `budget`*: the same rule for the next step.
+- Runs execute their trials one at a time (`concurrency: 1`, the plan's value) in
+  puzzle-major order through a FIFO semaphore, so when a puzzle starts every earlier
+  call has settled and nothing else is in flight; the check therefore covers the whole
+  next puzzle. Runs with `concurrency > 1` keep full admission even in rolling mode.
+- Unchanged: per-call reservations (a call is refused if its estimate exceeds the
+  remaining budget, so `MAX_SPEND_USD` is never exceeded), the call cap, duplicate
+  guard, `ALLOW_LIVE_RERUN`, `confirm_cost`, cost/truncation/`run_aborted` gates and
+  recording rules. Default `full` behaves exactly as before.
+
+**Worst case under rolling** (every Opus attempt at the full 512 price): warm-up spends
+$0.423 (remaining $1.454814312), primary puzzles 1–3 run (remaining $1.031817870,
+$0.608821428, $0.185824986), puzzle 4 is refused: run failed, session failed, no
+recording, ledger at most $1.814175014 ≤ $2.00. To finish all six puzzles, the first
+five must cost ≤ $1.877810754 − $0.472996442 = **$1.404814312** (average ≤ $0.281 per
+puzzle, i.e. two thirds of the worst case). Realistic: ~$0.07 per puzzle if Opus answers
+like primary puzzle 1, ~$0.27 if every Opus trial burns its four allowed invalid
+attempts at 512 and answers the rest at the probe's ~$0.0075.
+
+**Cost gate (kept enabled).** Realistic per-puzzle bounds: Decisions ~$0.0026; Opus
+$0.0025–$0.0126 per call, at most 33 attempts. Legitimate maximum per puzzle
+33 × 0.0126 + 0.0026 = $0.4184; modeled worst case $0.422996442.
+
+- `EXPECTED_COST_WARMUP=0.29`: stops above 1.5 × 0.29 = **$0.435** ≥ $0.422996442
+  (one puzzle). A truncation-heavy warm-up cannot trip it; any charge above the
+  worst-case model (unexpected price, billed tokens beyond the cap) stops the session
+  after the warm-up, before any primary call, at roughly $0.56 of $2.00 in total.
+- `EXPECTED_COST_PRIMARY=1.41`: stops above **$2.115** ≥ 5 × $0.422996442 =
+  $2.114982210. Honest limitation: the gate runs after a step finishes, never mid-run,
+  and the primary is the last required step, so this threshold cannot fire under the
+  $2.00 ceiling; with the extension excluded it would only label the recording. Mid-run
+  protection is the rolling per-puzzle check plus the per-call ledger.
+
+**Timeout `BENCHMARK_TIMEOUT_S=20`.** A cap-512 Opus call took ~12.5 s once, against
+the plan's 15 s; a timeout burns a retry (and may still be billed). 20 is the API and
+`MAX_TIMEOUT_S` maximum, gives 1.6× the observed slowest call, and is applied to every
+model alike (the Decisions models answer in well under a second, so it changes nothing
+for them). It is part of each run's `config` and `execution_config`. It does not change
+the spend worst case, only the wall time (worst case about 33 × 20 s per Opus trial).
+
+**Duplicate guard (verified offline on a copy of the real history).** Both earlier
+sessions are terminal (`failed`); completed live warm-ups `run_0f133a82…` and
+`run_edcb6b03…` are in the duplicate history. With the launch values (rolling, 512,
+20 s, `ALLOW_LIVE_RERUN=true`) `sources.live` is true, the admission estimate is
+$0.472996442 against $1.877810754, and submit passes the duplicate guard. With the
+timeout at 15 and no override it is refused as a duplicate of `run_0f133a82…`; at 20 s
+the plan no longer matches the G12 signature (timeout is part of it), but the
+override stays on. Under `full` it is refused with `budget` ($2.537978652). No saved
+run, session or ledger row changes.
+
+**Risks (disclose in the analysis).** Truncation at 512 is still possible on hard
+states and is counted as an Opus failure, never repaired. The cap is a project cost
+control, not a measure of model ability. $2.00 (≈$2.11 with the purchase fee) exceeds
+the assignment's $1.20 and AGENTS.md G1. Rolling admission is a human-approved
+deviation for this session only: a stop mid-primary records nothing, and the money
+spent up to the stop is lost. If the account runs out of credit again the run aborts
+the same way. A completed session still depends on Opus actually answering.
+
 **Launch** (from `backend`, with no other backend running; the script holds no key
 and refuses to start if port 8000 is in use):
 
@@ -383,11 +489,12 @@ and refuses to start if port 8000 is in use):
 ```
 
 It sets, for that process only, `MOCK_MODELS=false`, `MAX_SPEND_USD=2.00`,
-`CHAT_MAX_TOKENS=336`, `ALLOW_LIVE_RERUN=true`, `OPUS_TRUNCATION_GATE=report`,
-`EXPECTED_COST_WARMUP=0.22`, `EXPECTED_COST_PRIMARY=1.10`, then runs uvicorn on
-`127.0.0.1:8000`. Starting it makes no model call. Start the session once with the
-UI's Run live action or `{"source":"live","confirm_cost":true,"include_extension":false}`.
-After it finishes, stop the server and restart normally so the overrides end.
+`CHAT_MAX_TOKENS=512`, `ALLOW_LIVE_RERUN=true`, `OPUS_TRUNCATION_GATE=report`,
+`LIVE_ADMISSION=rolling`, `EXPECTED_COST_WARMUP=0.29`, `EXPECTED_COST_PRIMARY=1.41`,
+`BENCHMARK_TIMEOUT_S=20`, then runs uvicorn on `127.0.0.1:8000`. Starting it makes no
+model call. Start the session once with the UI's Run live action or
+`{"source":"live","confirm_cost":true,"include_extension":false}`. After it finishes,
+stop the server and restart normally so the overrides end.
 
 **Three-stage workflow.**
 
