@@ -1,6 +1,11 @@
 from app.engine import MOVES
 
-INSTRUCTIONS = "Min moves.URFDLB:9 row-major/face;letters=centres;CW/CCW=90,outside."
+# Shared steering: preserve the same task and deliberation instruction for all
+# four models. This is soft guidance, not a guarantee of short reasoning.
+INSTRUCTIONS = (
+    "Pick a move.Min moves.No deliberation."
+    "URFDLB:9/face,row-major;letters=centres;CW/CCW=90,outside."
+)
 SHORT_ANSWER = 'Reply immediately with only {"move":"<one allowed move>"}. No explanation.'
 CRITERIA = {
     move: "180" if move.endswith("2") else "CCW" if move.endswith("'") else "CW" for move in MOVES

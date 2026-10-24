@@ -139,11 +139,28 @@ async def run_smoke(settings, calibrate=False, transport=None, emit=print, *, di
                     emit("STOP AND ASK: Opus cost exceeds $0.012 per call.")
                     failed = True
                     break
+                if calibrate:
+                    # One truncation out of the planned three already exceeds
+                    # 20%, even if every remaining call succeeds. Do not pay
+                    # for more calls once this calibration cannot pass.
+                    reason = None
+                    if result.finish_reason == "length" or result.empty_content:
+                        reason = "truncated/empty Opus answer at 512; calibration cannot pass"
+                    elif result.move not in MOVES:
+                        reason = "invalid Opus move; calibration cannot establish a usable cap"
+                    elif result.usage.output_tokens is None:
+                        reason = "missing completion token count; calibration cannot measure a cap"
+                    elif recommended_cap([result.usage.output_tokens]) > 192:
+                        reason = "measured completion already requires a cap above 192"
+                    if reason:
+                        emit(f"STOP AND ASK: {reason}.")
+                        failed = True
+                        break
     calls, spent = ledger.summary(run_id)
     emit(f"Run {run_id}: calls={calls} spent_usd={spent} remaining_budget_usd={ledger.remaining}")
     if calibrate:
-        if len(results) != 3 or any(r.usage.output_tokens is None for r in results):
-            emit("STOP AND ASK: calibration did not return three measured completions.")
+        if failed or len(results) != 3 or any(r.usage.output_tokens is None for r in results):
+            emit("STOP AND ASK: calibration did not return three valid measured completions.")
             return 1
         truncation_rate = sum(r.finish_reason == "length" for r in results) / 3
         recommendation = recommended_cap([r.usage.output_tokens for r in results])

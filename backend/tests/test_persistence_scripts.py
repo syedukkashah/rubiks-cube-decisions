@@ -232,7 +232,8 @@ async def test_calibration_and_stop_gates(settings, tokens, finish, cost, expect
         )
         == expected
     )
-    assert len(calls) == (1 if cost > 0.012 else 3)
+    assert len(calls) == (1 if expected else 3)
+    assert any("Recommended CHAT_MAX_TOKENS=" in line for line in output) == (expected == 0)
     assert recommended_cap([64, 64, 64]) == 96
     assert SpendLedger(settings).live_calls == len(calls)
 

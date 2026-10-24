@@ -82,15 +82,16 @@ and truncation counts in the written analysis.
 
 **Live verification is partial:** one authorized Opus probe succeeded after the
 temperature and regex fixes, but exceeded the former 250-token input guard. The
-human subsequently approved a 600-token guard and matching planning floor. Calibration and
-the benchmark remain paused. These are single-probe observations, not averages:
+human subsequently approved a 600-token guard and matching planning floor. The first
+calibration attempt then exhausted 512 tokens on reasoning (see review below).
+The benchmark remains paused. These are single-probe observations, not averages:
 
 | Measurement | Current value |
 |---|---|
 | Opus prompt tokens (must be ≤600) | 480 on the previous probe; within the approved limit |
 | Opus completion / reasoning tokens per call | 11 / 0 reported on one probe; calibration pending |
 | Opus actual cost per call | $0.00214 on one probe; calibration pending |
-| Calibrated `CHAT_MAX_TOKENS` | Pending; provisional 160 |
+| Calibrated `CHAT_MAX_TOKENS` | Failed calibration; provisional 160 remains unvalidated |
 | Successful provider and `low`/`omit` variant | Claude Platform on AWS; low |
 | Temperature compatibility | Omitted under G2; endpoint metadata excludes temperature (2026-10-24) |
 
@@ -219,6 +220,49 @@ estimates; caps 96/128 fit the six required puzzles plus calibration. The option
 extension still needs its own gate checks. Calibration must determine an adequate
 output cap; do not select a smaller cap solely to fit the budget. No calibrated
 cap is recommended yet, and no additional live call was made for this review.
+
+### Opus reasoning review (2026-10-25)
+
+The approved calibration on seed 100 stopped after one call: prompt 478,
+completion 512, reasoning 512, empty answer, `finish_reason: length`, provider
+Claude Platform on AWS, actual cost $0.012152. No remaining calibration calls ran.
+It exceeded the $0.012 per-call gate; one truncation would also exceed 20% of the
+planned three samples even if the other two succeeded. No usable cap was established.
+Accounted spend is now $0.036365534; remaining budget is $1.063634466. The required
+session at cap 160 still estimates $1.142631864 and is refused. No benchmark recording exists.
+
+The adapter sends `reasoning.effort: low` correctly. OpenRouter documents this
+[empty-answer failure when reasoning consumes max_tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#reasoning-tokens-and-max_tokens).
+`exclude` only hides reasoning text. The
+[Opus migration guide](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide)
+rules out disabling thinking or assigning a separate manual thinking budget;
+omitting effort selects the higher default `medium` and is not a truncation fix.
+The G2 omit fallback applies to a reasoning-related HTTP 400, not this successful
+HTTP response whose output was truncated.
+
+Prepared offline mitigation: shared instructions now begin
+`Pick a move.Min moves.No deliberation.` for **all four models**. This makes the
+single-move task explicit and discourages deliberation, following Anthropic's
+[prompt steering guidance](https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost#system-prompt-guidance).
+All move definitions, facelet conventions, strict schema, and the exact chat-only
+short-answer line remain present. Full chat requests measure 1,058 characters with
+empty history and 1,099 with six two-character moves, within the 1,100 limit.
+This is a candidate prompt change, not a verified solution: prompt steering is
+soft, may affect move quality, and cannot guarantee Opus will answer within a cap.
+Real input counts and behavior under this revision have not been measured.
+
+Calibration now stops immediately on a truncated/empty or invalid answer, missing
+completion counts, or a sample requiring a recommended cap above 192. It never
+prints a recommended cap after failed calibration, including a failure on the
+third sample. These stops save the remaining calls; the runner's retry policy is
+unchanged. Mock transports reproduce the observed all-reasoning response and
+verify accounting and early termination; they cannot validate model behavior.
+
+No output/price/spend cap or `.env` setting was changed. Before separately approved
+live validation, stop the backend (its running process may still have the previous
+prompt loaded), use the existing calibration command, and save its output. Its
+three-call planning allowance is $0.03792 at the current 600-token input floor.
+Do not start the benchmark until calibration and the updated budget check pass.
 
 `.runs/` stores puzzles, snapshots, full SSE logs, live/mock provenance and internal
 token/finish metadata. Each event flushes through a temporary file and atomic

@@ -170,3 +170,44 @@ async def test_approved_prompt_guard_stops_remaining_calibration_calls(settings,
     if not accepted:
         assert any("prompt_tokens missing or above 600" in line for line in output)
         assert not any("Recommended CHAT_MAX_TOKENS=" in line for line in output)
+
+
+@pytest.mark.parametrize("failure_at", [1, 3])
+@pytest.mark.parametrize("failure", ["reasoning_only", "empty", "invalid", "missing", "too_large"])
+async def test_calibration_stops_on_unusable_measurements(settings, failure_at, failure):
+    calls, output = [], []
+
+    def handler(request):
+        calls.append(request)
+        body = response(CHAT_MODEL, cost=0.001).json()
+        if len(calls) == failure_at:
+            if failure == "reasoning_only":
+                # Observed failure shape, below the cost gate to exercise the
+                # independent truncation gate. Preserve billed reasoning usage.
+                body["choices"][0]["finish_reason"] = "length"
+                body["choices"][0]["message"]["content"] = ""
+                body["usage"]["completion_tokens"] = 512
+                body["usage"]["completion_tokens_details"]["reasoning_tokens"] = 512
+            elif failure == "empty":
+                body["choices"][0]["message"]["content"] = ""
+            elif failure == "invalid":
+                body["choices"][0]["message"]["content"] = '{"move":"X"}'
+            elif failure == "missing":
+                body["usage"].pop("completion_tokens")
+            elif failure == "too_large":
+                body["usage"]["completion_tokens"] = 160
+        return httpx.Response(200, json=body)
+
+    assert (
+        await run_smoke(
+            settings, calibrate=True, transport=httpx.MockTransport(handler), emit=output.append
+        )
+        == 1
+    )
+    assert len(calls) == failure_at
+    ledger = SpendLedger(settings)
+    assert ledger.live_calls == failure_at
+    assert ledger.rows[-1]["cost_usd"] == 0.001
+    if failure == "reasoning_only":
+        assert ledger.rows[-1]["reasoning_tokens"] == 512
+    assert not any("Recommended CHAT_MAX_TOKENS=" in line for line in output)
