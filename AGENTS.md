@@ -122,11 +122,11 @@ Minimum sample: 5 primary puzzles × 4 models = 20 trials (10+ puzzles recommend
 
 ---
 
-## 5. JSON API contract (v1.2.0)
+## 5. JSON API contract (v1.3.0)
 
 The contract below is normative. Both agents implement exactly this. When `/contract/openapi.yaml` is created it must mirror this section field for field; if the two ever disagree, **this file wins until fixed**.
 
-**Changelog.** `1.2.0` (2026-10-24, human-approved, one-click benchmark with record and replay): new endpoints `GET /benchmark`, `POST /benchmark/sessions`, `GET /benchmark/sessions/{session_id}`, `POST /benchmark/sessions/{session_id}/cancel` (section 5.10). Purely additive; existing endpoints and fixtures are unchanged. `1.1.0` (2026-10-24, human-approved, cost guardrails): run defaults `timeout_s` 60 → 15 and `max_retries` 2 → 1; `POST /runs` may return `409 conflict` when the spend pre-check fails (section 6.1). No field, type or enum changes.
+**Changelog.** `1.3.0` (2026-10-24, human-approved, live step gates): `BenchmarkSession.runs[].gate` and `BenchmarkSession.stop_reason` (section 5.10). Additive. `1.2.0` (2026-10-24, human-approved, one-click benchmark with record and replay): new endpoints `GET /benchmark`, `POST /benchmark/sessions`, `GET /benchmark/sessions/{session_id}`, `POST /benchmark/sessions/{session_id}/cancel` (section 5.10). Purely additive; existing endpoints and fixtures are unchanged. `1.1.0` (2026-10-24, human-approved, cost guardrails): run defaults `timeout_s` 60 → 15 and `max_retries` 2 → 1; `POST /runs` may return `409 conflict` when the spend pre-check fails (section 6.1). No field, type or enum changes.
 
 ### 5.1 Conventions
 
@@ -171,7 +171,7 @@ Every non-2xx response has this shape:
 ```json
 {
   "status": "ok",
-  "contract_version": "1.2.0",
+  "contract_version": "1.3.0",
   "api_key_configured": true
 }
 ```
@@ -471,7 +471,7 @@ choose_move(state: facelets, recent_moves: list[str], allowed_moves: list[str], 
 - Validation: the returned move must be in the 18-move set. Otherwise it is an invalid output: log it, count it, retry per policy, never substitute a move. A truncated chat response (`finish_reason: "length"` or empty content) is a `malformed_response`.
 - Both adapters also return the response's `usage` (`input/prompt tokens`, `output/completion tokens`, `reasoning_tokens` if present, `cost`) to the runner for the spend ledger (6.1). This is internal only and never appears in API responses.
 
-### 5.10 One-click benchmark, record and replay (v1.2.0)
+### 5.10 One-click benchmark, record and replay (v1.2.0, gates v1.3.0)
 
 The human wants to (1) preview the whole app with no API key, (2) run the real benchmark through OpenRouter **once** and save it, and (3) replay that saved benchmark as often as needed for screen recordings, with **zero** OpenRouter calls. A **benchmark session** runs the fixed plan from section 6.2 (warm-up, primary, optional extension) as ordinary runs, one after another, from a single request. All existing run endpoints (`/runs/{id}`, `/events`, `/stats`, `/cancel`) keep working unchanged on every run of a session.
 
@@ -541,10 +541,11 @@ Errors: `source: "replay"` with no recording ⇒ `409 conflict` (`details.reason
   "replay_of_session_id": "sess_01",
   "recorded_at": "2026-10-25T10:12:00Z",
   "total_cost_usd": null,
+  "stop_reason": null,
   "runs": [
-    { "step": "warmup", "suite": "warmup", "run_id": "run_11", "status": "completed" },
-    { "step": "primary", "suite": "primary", "run_id": "run_12", "status": "running" },
-    { "step": "extension", "suite": "extension", "run_id": "run_13", "status": "queued" }
+    { "step": "warmup", "suite": "warmup", "run_id": "run_11", "status": "completed", "gate": null },
+    { "step": "primary", "suite": "primary", "run_id": "run_12", "status": "running", "gate": null },
+    { "step": "extension", "suite": "extension", "run_id": "run_13", "status": "queued", "gate": null }
   ]
 }
 ```
@@ -555,6 +556,30 @@ Errors: `source: "replay"` with no recording ⇒ `409 conflict` (`details.reason
 - A failed or cancelled `live` session is **not** saved as the recording. A `live` session whose required steps (warm-up, primary) completed is saved, whether or not the extension ran.
 
 **`GET /benchmark/sessions/{session_id}`**: the same `BenchmarkSession`, current state. `404 not_found` if unknown. **`POST /benchmark/sessions/{session_id}/cancel`**: stops the active run and marks the rest `cancelled`; `409 conflict` if already terminal.
+
+**Step gates (`live` only, v1.3.0).** After each live step finishes, the backend evaluates the section 6.2 gates and records the result in `runs[].gate`:
+
+```json
+{
+  "passed": false,
+  "cost_usd": 0.07,
+  "expected_cost_usd": 0.03,
+  "opus_truncation_pct": 31.0,
+  "reasons": ["cost_over_expected", "opus_truncation"]
+}
+```
+
+| Reason | Fails when |
+|---|---|
+| `cost_over_expected` | the step's ledger cost is above 1.5 times its expected cost (6.2 table: warm-up ~$0.03, primary ~$0.33, extension ~$0.20; env-overridable) |
+| `opus_truncation` | more than 20% of the step's Opus calls ended with `finish_reason: "length"` or empty content (`opus_truncation_pct` carries the rate; `null` if there were no Opus calls) |
+| `run_aborted` | the run ended `failed` (401/402/cap) |
+| `budget` | ledger spend plus the next step's worst-case pre-check (6.1 G5) exceeds `MAX_SPEND_USD` |
+
+- If every gate passes, the next step starts automatically, so the session stays one click. If any gate fails, the session **stops before the next step**; it never pauses waiting for approval.
+- `gate` is `null` until a live step has been evaluated, and **always `null`** for `simulated` and `replay` sessions. The thresholds live in the backend only; the frontend just displays `gate`.
+- `stop_reason` is `null` or `"gate"`. When a gate stops the session **before a required step** (warm-up or primary): the remaining runs are `cancelled`, the session `status` is `failed`, and no recording is saved. When it stops **before the extension only**: the extension is `skipped`, the session is `completed`, and the recording is saved.
+- There is no separate rehearsal step in the plan: the 1-puzzle warm-up is the rehearsal, and its gate protects the primary run. `live_smoke.py` and `--calibrate` remain manual prerequisites (6.2 steps 1-2).
 
 **Recording storage (backend).** Saved to `RECORDING_PATH` (default `backend/recordings/benchmark.json`). The file is **not** git-ignored so the human can commit it. It holds puzzles, run snapshots and event logs with timestamps, and the session's ledger total. It never contains the key, headers or prompts. A new recording replaces an older one only for a successful `live` session, and only if the guardrails allowed that session to start. Replay runs and simulated runs never overwrite it.
 
@@ -786,13 +811,13 @@ Every live step below is run **once**. Seeds are fixed so the puzzles are reprod
 | 0 | mock | Run steps 3–6 end to end in mock mode, open the dashboard and `/slide`, and do a full dry-run of the screen recording. Fix everything here. | 0 | $0 |
 | 1 | live | `live_smoke.py`: 1 call per model | 1 / 1 | < $0.01 |
 | 2 | live | `live_smoke.py --calibrate` (3 Opus calls); then set `CHAT_MAX_TOKENS` in `.env` and restart | 3 / 3 | < $0.04 |
-| 3 | live | Rehearsal: `warmup`, `count 1`, `seed 100`, `max_moves 5` | ≤ 5 / 8 | < $0.03 |
+| 3 | — | *(dropped; the warm-up in step 4 is the rehearsal, guarded by its gate)* | 0 | $0 |
 | 4 | live | Warm-up run: `warmup`, `count 1`, `seed 101` | ~6 / 33 | ~$0.03 |
 | 5 | live | **Primary run: `primary`, `count 5`, `seed 202` (the assignment minimum: 5 puzzles × 4 models = 20 trials). One run, so the dashboard and slide cover all 5 puzzles. Screen-record this run** (in-progress + completion stages). | ~95 / 165 | ~$0.33 |
 | 6 | live | **Optional** extension run: `extension`, `count 2`, `seed 303`. Run it only if the pre-check passes and the gates below are green; otherwise skip it and say so in the write-up. | ~65 / 66 | ~$0.20 |
 | 7 | offline | `export_results.py`; record the final slide from the persisted primary run | 0 | $0 |
 
-**Gates between live steps.** After each live step, read the run-finished log line (G5) or the ledger and stop to reconsider before going on if any of these hold:
+**Gates between live steps.** In a live benchmark session the backend evaluates these gates itself and stops before the next step if one fails (section 5.10). For steps run individually, read the run-finished log line (G5) or the ledger and stop to reconsider before going on if any of these hold:
 - the step cost more than 1.5× its expected cost;
 - Opus truncations exceed 20% of its calls;
 - any run aborted (401/402/cap);

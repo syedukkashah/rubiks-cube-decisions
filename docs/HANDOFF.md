@@ -125,3 +125,11 @@ Addition to the UI redesign. `git merge main` for the new contract (v1.2.0: AGEN
 - **Live is a separate, confirmed action** ("Run live once", visible only when `sources.live` is true): show the spend pre-check, require an explicit confirm, then send `source: "live"`, `confirm_cost: true`. After it finishes, the UI should say the recording was saved.
 - Mock mode (`VITE_USE_MOCKS`) must also serve the new endpoints from fixtures (a scripted session over the existing run fixtures), so the UI is reviewable with no backend.
 - Display backend values only; replay shows the recorded latencies, not the replay pace.
+
+## 2026-10-24 orchestrator -> backend (Codex), frontend (Claude Code): step gates, contract v1.3.0
+
+The human approved the frontend's CONTRACT-CHANGE request (answered "approve" and "warm-up is the rehearsal"). Contract is **v1.3.0** (additive): AGENTS.md 5.10 "Step gates", openapi `StepGate`, `BenchmarkSession.runs[].gate`, `BenchmarkSession.stop_reason`, fixtures `benchmark_session.json` (updated, gate `null`) and `benchmark_session_gate_stop.json`. `git merge main` (health fixture says 1.3.0). The 6.2 rehearsal step is dropped.
+
+**Backend (Codex), add to the one-click benchmark task:** for `live` sessions only, after each step finishes evaluate the four gates from 5.10 (cost vs 1.5x the expected cost with env-overridable per-step expected costs `EXPECTED_COST_WARMUP=0.03`, `EXPECTED_COST_PRIMARY=0.33`, `EXPECTED_COST_EXTENSION=0.20`; Opus truncation over 20%; run aborted; next step's worst-case pre-check vs remaining budget), fill `runs[].gate`, auto-start the next step when it passes and otherwise stop with `stop_reason: "gate"` per the two stop rules (before a required step: remaining runs `cancelled`, session `failed`, no recording; before the extension only: extension `skipped`, session `completed`, recording saved). Track Opus truncations per step (count calls ending `finish_reason: "length"` or empty content, G4/G5 data). `gate` is always `null` for simulated and replay, and `stop_reason` null unless a gate stopped it. Offline tests: each reason fires alone, a pass continues, both stop rules, null for simulated/replay.
+
+**Frontend (Claude Code):** go ahead with the gate chip per step and the "Stopped at gate" notice; use the two fixtures. Display `gate` values only.
