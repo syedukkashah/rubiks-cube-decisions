@@ -14,19 +14,23 @@
       "step": "warmup",
       "suite": "warmup",
       "run_id": "run_11",
-      "status": "completed"
+      "status": "completed",
+      "gate": null
     },
     {
       "step": "primary",
       "suite": "primary",
       "run_id": "run_12",
-      "status": "running"
+      "status": "running",
+      "gate": null
     },
     {
       "step": "extension",
       "suite": "extension",
       "run_id": "run_13",
-      "status": "queued"
+      "status": "queued",
+      "gate": null
     }
-  ]
+  ],
+  "stop_reason": null
 }
