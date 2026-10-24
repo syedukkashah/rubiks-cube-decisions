@@ -27,7 +27,7 @@ def test_mock_pipeline_and_resume(client):
     health = client.get("/api/v1/health")
     assert health.json() == {
         "status": "ok",
-        "contract_version": "1.1.0",
+        "contract_version": "1.3.0",
         "api_key_configured": False,
     }
     assert health.headers["content-type"] == "application/json; charset=utf-8"

@@ -1,12 +1,14 @@
 import asyncio
-from random import Random
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.engine import SUITE_RANGES, scramble
-from app.runner.service import RunConflict, new_id
+from app.puzzles import generate_puzzles
+from app.runner.service import RunConflict
 from app.schemas import (
+    BenchmarkInfo,
+    BenchmarkSession,
+    BenchmarkSessionRequest,
     Health,
     ModelsResponse,
     Puzzle,
@@ -20,9 +22,7 @@ from app.schemas import (
     RunSummary,
     StatsResponse,
     Suite,
-    utc_now,
 )
-from app.solver import shortest_distance
 from app.stats import compute_stats
 
 
@@ -65,27 +65,6 @@ async def models(request: Request):
     registry = request.app.state.registry
     await registry.refresh()
     return ModelsResponse(models=registry.models)
-
-
-def generate_puzzles(body: PuzzleRequest) -> list[Puzzle]:
-    rng = Random(body.seed)
-    puzzles = []
-    for _ in range(body.count):
-        length = body.scramble_length
-        if length is None:
-            length = rng.randint(*SUITE_RANGES[body.suite])
-        moves, facelets = scramble(rng, length)
-        puzzles.append(
-            Puzzle(
-                puzzle_id=new_id("pz"),
-                suite=body.suite,
-                scramble_moves=moves,
-                facelets=facelets,
-                optimal_distance=shortest_distance(facelets) if body.suite != "extension" else None,
-                created_at=utc_now(),
-            )
-        )
-    return puzzles
 
 
 @router.post("/puzzles", status_code=201, response_model=PuzzlesResponse)
@@ -194,3 +173,27 @@ async def events(run_id: str, request: Request):
 @router.get("/runs/{run_id}/stats", response_model=StatsResponse)
 async def stats(run_id: str, request: Request):
     return compute_stats(get_run(request, run_id).snapshot)
+
+
+@router.get("/benchmark", response_model=BenchmarkInfo)
+async def benchmark_info(request: Request):
+    return request.app.state.sessions.info()
+
+
+@router.post("/benchmark/sessions", status_code=202, response_model=BenchmarkSession)
+async def create_session(body: BenchmarkSessionRequest, request: Request):
+    state = await request.app.state.sessions.submit(body)
+    return state.snapshot
+
+
+@router.get("/benchmark/sessions/{session_id}", response_model=BenchmarkSession)
+async def session_snapshot(session_id: str, request: Request):
+    return request.app.state.sessions.get(session_id).snapshot
+
+
+@router.post("/benchmark/sessions/{session_id}/cancel", response_model=BenchmarkSession)
+async def cancel_session(session_id: str, request: Request):
+    manager = request.app.state.sessions
+    state = manager.get(session_id)
+    await manager.cancel(state)
+    return state.snapshot

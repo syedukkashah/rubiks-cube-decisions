@@ -16,6 +16,7 @@ from app.budget import SpendLedger
 from app.config import Settings
 from app.runner.service import BenchmarkService
 from app.schemas import ErrorDetail, ErrorEnvelope
+from app.sessions import SessionError, SessionManager
 from app.storage import RunStore
 
 
@@ -59,14 +60,16 @@ def create_app(settings: Settings | None = None, adapter_factory=None, transport
                 ledger,
                 RunStore(settings.runs_dir),
             )
+            app.state.sessions = SessionManager(app.state.service, registry)
             try:
                 yield
             finally:
+                await app.state.sessions.close()
                 await app.state.service.close()
 
     app = FastAPI(
         title="Rubik's Cube Race",
-        version="1.1.0",
+        version="1.3.0",
         lifespan=lifespan,
         default_response_class=UTF8JSONResponse,
     )
@@ -79,6 +82,7 @@ def create_app(settings: Settings | None = None, adapter_factory=None, transport
     )
 
     @app.exception_handler(APIError)
+    @app.exception_handler(SessionError)
     async def api_error(request: Request, error: APIError):
         return error_response(error.status, error.code, error.message, error.details)
 

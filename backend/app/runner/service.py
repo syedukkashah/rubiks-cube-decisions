@@ -33,6 +33,9 @@ class RunState:
     call_metrics: list[dict] = field(default_factory=list)
     execution_config: dict = field(default_factory=dict)
     failure: Exception | None = None
+    adapter_factory: Callable | None = None
+    simulation_speed: float | None = None
+    simulated_time: dict[str, float] = field(default_factory=dict)
 
 
 class RunConflict(Exception):
@@ -149,6 +152,12 @@ class BenchmarkService:
             return self.start(config)
 
     def start(self, config: RunConfig) -> RunState:
+        state = self.create(config)
+        self.launch(state)
+        return state
+
+    def create(self, config: RunConfig, *, live=None, adapter_factory=None, simulation_speed=None):
+        """Create a durable queued run without starting any inference."""
         run_id = new_id("run")
         trials = [
             Trial(
@@ -171,7 +180,13 @@ class BenchmarkService:
             finished_at=None,
             trials=trials,
         )
-        state = RunState(snapshot, EventLog(snapshot), live=not self.settings.mock_models)
+        state = RunState(
+            snapshot,
+            EventLog(snapshot),
+            live=not self.settings.mock_models if live is None else live,
+            adapter_factory=adapter_factory,
+            simulation_speed=simulation_speed,
+        )
         state.execution_config = {
             "chat_max_tokens": self.settings.chat_max_tokens,
             "chat_reasoning_effort": self.settings.chat_reasoning_effort,
@@ -181,13 +196,19 @@ class BenchmarkService:
         if self.store is not None:
             self.store.save_run(state)
         self.runs[run_id] = state
-        state.task = asyncio.create_task(self._execute(state), name=run_id)
         return state
+
+    def launch(self, state):
+        if state.snapshot.status != "queued" or state.task is not None:
+            raise ValueError("Only a fresh queued run can start")
+        state.task = asyncio.create_task(self._execute(state), name=state.snapshot.run_id)
 
     def _finish_trial(self, state: RunState, trial: Trial):
         trial.finished_at = utc_now()
         started = self._trial_clocks.pop(trial.trial_id, None)
         trial.total_time_s = perf_counter() - started if started is not None else None
+        if state.simulation_speed is not None:
+            trial.total_time_s = state.simulated_time.get(trial.trial_id, 0)
         if trial.solved and trial.optimal_distance is not None:
             trial.optimality_gap = trial.moves_used - trial.optimal_distance
         state.log.emit("trial_finished", trial.model_dump(), trial.trial_id)
@@ -279,9 +300,14 @@ class BenchmarkService:
             },
             trial.trial_id,
         )
-        adapter = self.adapter_factory(trial.model_id, self.puzzles[trial.puzzle_id])
+        factory = state.adapter_factory or self.adapter_factory
+        adapter = factory(trial.model_id, self.puzzles[trial.puzzle_id])
 
         def record_call(result, failure):
+            if state.simulation_speed is not None and result is not None:
+                state.simulated_time[trial.trial_id] = (
+                    state.simulated_time.get(trial.trial_id, 0) + result.latency_ms / 1000
+                )
             if not state.live:
                 return
             usage = result.usage if result is not None else failure.usage
@@ -292,6 +318,7 @@ class BenchmarkService:
                     "move_index": trial.moves_used + 1,
                     "usage": asdict(usage),
                     "finish_reason": result.finish_reason if result is not None else None,
+                    "empty_content": result.empty_content if result is not None else False,
                     "accepted": result is not None and result.move in MOVES,
                 }
             )
@@ -327,7 +354,7 @@ class BenchmarkService:
                         adapter,
                         trial.current_facelets,
                         history,
-                        config.timeout_s,
+                        config.timeout_s / (state.simulation_speed or 1),
                         self.ledger if state.live else None,
                         trial.run_id,
                         trial.trial_id,

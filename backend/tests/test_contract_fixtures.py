@@ -16,6 +16,10 @@ FIXTURES = sorted(FIXTURE_DIR.glob("*.json"))
 
 
 def fixture_schema(value):
+    if "session_id" in value:
+        return schemas.BenchmarkSession
+    if "auto_source" in value:
+        return schemas.BenchmarkInfo
     if "seq" in value:
         return schemas.Event
     if "contract_version" in value:

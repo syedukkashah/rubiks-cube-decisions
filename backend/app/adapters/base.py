@@ -58,6 +58,7 @@ class MoveChoice:
     usage: Usage = field(default_factory=Usage)
     finish_reason: str | None = None
     provider: str | None = None
+    empty_content: bool = False
 
 
 class Adapter(Protocol):

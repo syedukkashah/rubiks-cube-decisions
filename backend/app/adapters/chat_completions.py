@@ -66,9 +66,12 @@ class ChatAdapter(HTTPAdapter):
         )
         move = None
         finish_reason = None
+        empty_content = False
         try:
             finish_reason = body["choices"][0].get("finish_reason")
-            content = json.loads(body["choices"][0]["message"]["content"])
+            text = body["choices"][0]["message"].get("content")
+            empty_content = text is None or (isinstance(text, str) and not text.strip())
+            content = json.loads(text)
             if finish_reason != "length" and isinstance(content, dict) and set(content) == {"move"}:
                 candidate = content["move"]
                 if isinstance(candidate, str) and candidate in allowed_moves:
@@ -83,4 +86,5 @@ class ChatAdapter(HTTPAdapter):
             Usage.parse(body),
             finish_reason,
             body.get("provider") if isinstance(body, dict) else None,
+            empty_content,
         )

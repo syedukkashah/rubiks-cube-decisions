@@ -32,6 +32,10 @@ class Settings:
     spend_ledger_path: Path = BACKEND_DIR / ".spend" / "ledger.jsonl"
     runs_dir: Path = BACKEND_DIR / ".runs"
     allow_live_rerun: bool = False
+    recording_path: Path = BACKEND_DIR / "recordings" / "benchmark.json"
+    expected_cost_warmup: float = 0.03
+    expected_cost_primary: float = 0.33
+    expected_cost_extension: float = 0.20
 
     def __post_init__(self):
         for name in (
@@ -41,6 +45,9 @@ class Settings:
             "max_live_calls",
             "chat_max_tokens",
             "max_retries_cap",
+            "expected_cost_warmup",
+            "expected_cost_primary",
+            "expected_cost_extension",
         ):
             value = getattr(self, name)
             if (
@@ -101,4 +108,8 @@ class Settings:
             spend_ledger_path=path("SPEND_LEDGER_PATH", ".spend/ledger.jsonl"),
             runs_dir=path("RUNS_DIR", ".runs"),
             allow_live_rerun=boolean("ALLOW_LIVE_RERUN", "false"),
+            recording_path=path("RECORDING_PATH", "recordings/benchmark.json"),
+            expected_cost_warmup=number("EXPECTED_COST_WARMUP", 0.03),
+            expected_cost_primary=number("EXPECTED_COST_PRIMARY", 0.33),
+            expected_cost_extension=number("EXPECTED_COST_EXTENSION", 0.20),
         )

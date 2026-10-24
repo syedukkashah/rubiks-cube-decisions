@@ -164,7 +164,7 @@ def test_mock_ignores_unreadable_ledger_and_network(settings):
     settings = replace(settings, mock_models=True)
     with TestClient(create_app(settings)) as client:
         assert client.get("/api/v1/models").status_code == 200
-        assert client.get("/api/v1/health").json()["contract_version"] == "1.1.0"
+        assert client.get("/api/v1/health").json()["contract_version"] == "1.3.0"
     assert settings.spend_ledger_path.read_text() == "corrupt ledger must not be read"
 
 
