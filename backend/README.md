@@ -1,131 +1,237 @@
 # Rubik's Cube Race backend
 
-Python 3.11+, FastAPI, Pydantic v2, async httpx. The public API follows section 5
-of `AGENTS.md` on `main` (contract v1.0.0, commit `35f76a4`). All backend files
-live here; no frontend or shared-contract edits are required to run it.
+FastAPI / Python 3.11+, contract **1.1.0**, implementing AGENTS.md at `0a55c1a`.
+All development and automated tests run offline. Mock mode is the default.
 
-## Setup (PowerShell)
+## Install and start
 
-Run from this `backend` directory:
+From `backend` in PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
-```
-
-Edit `backend/.env`. For offline development, set `MOCK_MODELS=true` and leave
-`OPENROUTER_API_KEY` empty. Start the app:
-
-```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 ```
 
-Interactive API docs: <http://localhost:8000/docs>. Health:
-<http://localhost:8000/api/v1/health>. CORS defaults to `http://localhost:5173`;
-set `CORS_ORIGINS` to a comma-separated list of exact frontend origins.
+API: `http://localhost:8000/api/v1`; interactive docs: `http://localhost:8000/docs`.
+Use one backend process/worker. `.env` is ignored. Environment variables override
+`.env`, and settings are read at startup; restart after changes. The startup banner
+says **MOCK MODE** or **LIVE MODE**. Mock runs use no key, network or spend ledger.
+They deterministically reverse the scramble, return null confidence, and use
+synthetic 1 ms move latency. Their results are for pipeline testing only.
 
-## Connect OpenRouter later
+## Settings
 
-Set `OPENROUTER_API_KEY` to your key and `MOCK_MODELS=false` in `.env`, then restart
-the server. Environment variables take precedence over `.env`. The key is read
-at startup, never included in API responses, and `.env` is ignored by Git.
-Do not place the key in frontend configuration. No model inference occurs until
-you explicitly create a run. Real mode rejects run creation with HTTP 503 when
-the key is empty. `/health` reports only whether a key is configured, not whether
-it is valid or has credits.
+| Variable | Default | Behavior |
+|---|---|---|
+| `OPENROUTER_API_KEY` | empty | Backend only; real runs return 503 without it |
+| `MOCK_MODELS` | `true` | Only explicit `false` enables live requests |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated exact origins |
+| `MAX_SPEND_USD` | `1.10` | Persistent usage cap; values above 1.10 are rejected |
+| `MAX_LIVE_CALLS` | `2000` | Persistent inference-attempt cap |
+| `MAX_TRIAL_RETRIES` | `3` | Total retries across all moves in each trial |
+| `CHAT_MAX_TOKENS` | `160` | Provisional thinking + answer cap; valid range 64–512 |
+| `CHAT_REASONING_EFFORT` | `low` | `low` or G2 compatibility setting `omit` only |
+| `MAX_TIMEOUT_S` | `20` | API rejects larger per-call timeouts with 422 |
+| `MAX_RETRIES_CAP` | `1` | API rejects larger per-move retry counts with 422 |
+| `SPEND_LEDGER_PATH` | `.spend/ledger.jsonl` | Relative to `backend`, or an absolute path |
+| `RUNS_DIR` | `.runs` | Relative to `backend`, or an absolute path |
+| `ALLOW_LIVE_RERUN` | `false` | Explicit override for duplicate live configurations |
 
-The four model IDs, order, and interfaces match the contract. Availability is
-checked through each model's OpenRouter endpoints listing when `/models` or real
-run creation is requested, with a 60-second cache. A failed initial check leaves
-availability false; later check failures retain the previous result. Unavailable
-models cause HTTP 409. You need internet access and OpenRouter credits for real runs.
+Non-numeric, negative and non-finite numeric settings fail at startup. Boolean
+settings accept only `true`/`false`. Fractional call/retry/token limits are rejected.
+The default API run configuration is timeout 15 seconds, one retry per move,
+history window six, concurrency one, and at most 30 valid moves.
 
-Official documentation checked on 2026-10-24:
+The usage ceiling is $1.10, approximately $1.16 including a 5.5% purchase fee,
+within the assignment's $1.20 ceiling. Set a dedicated OpenRouter key's credit
+limit to $1.10 as the independent account-side backstop. Never raise the code cap.
 
-- [Decisions request and response format](https://openrouter.ai/docs/guides/community/multimodal-decisions)
-- [Structured chat outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
-- [Model endpoints and availability](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model)
+## Opus request and prompt
 
-The Decisions adapter sends `state` and a named `next_move` choice question with
-18 criteria; it reads `answers.next_move.choice` and confidence/probabilities.
-The chat adapter uses the same state, instructions, and move definitions with a
-strict JSON schema and provider parameter support required. Neither adapter
-repairs invalid moves. The runner applies the same timeout/retry/history policy
-to both interfaces. These adapters have not been exercised with a live key yet.
+The chosen provisional G2 variant is **effort `low`**, with `exclude: true`,
+`max_tokens: 160`, `temperature: 0`, strict JSON output and provider limits
+`max_price: {prompt: 4, completion: 20}` (USD per million tokens).
+Opus always thinks; excluding thinking only hides its text and does not remove its
+cost. No `none`, manual thinking budget, alternative model or invented confidence
+is sent. The shared prompt and criteria are identical across interfaces. Chat adds:
 
-## Automated tests (offline)
+> Reply immediately with only {"move":"<one allowed move>"}. No explanation.
+
+Shared criteria use `CW`, `CCW`, and `180`; the shared instructions define viewing
+direction and quarter turns. The strict move schema uses an anchored pattern
+equivalent to the 18-value enum, retaining a required string `move` and rejecting
+additional properties. Tests check the exact accepted move language, including
+trailing-newline rejection. This avoids duplicating the option list and keeps the
+**entire request at 1,100 characters** under `json.dumps` with the default six-move
+history (including six two-character moves). JSON is transmitted compactly.
+Longer explicitly configured histories increase prompt size and estimated-token
+uncertainty; use the assignment's history window six for live runs.
+
+`finish_reason: length`, empty content, and malformed JSON are counted failures;
+they are never repaired. Illegal strings are rejected by the runner. The cap can
+limit Opus quality: report this configuration, measured output/reasoning averages,
+and truncation counts in the written analysis.
+
+**Live verification is pending:** no paid inference was run during implementation.
+Record these after the human-run smoke/calibration steps:
+
+| Measurement | Current value |
+|---|---|
+| Opus prompt tokens (must be ≤250) | Pending live smoke |
+| Opus completion / reasoning tokens per call | Pending calibration |
+| Opus actual cost per call | Pending calibration |
+| Calibrated `CHAT_MAX_TOKENS` | Pending; provisional 160 |
+| Successful provider and `low`/`omit` variant | Pending; configured low |
+| Temperature compatibility | Pending; temperature 0 retained |
+
+G2 allows one **smoke-only** compatibility retry after a reasoning-related 400:
+omit `reasoning`, retaining the same token cap, short-answer line and price limit.
+The script prints the outcome and instructs you to set `CHAT_REASONING_EFFORT=omit`
+if that probe succeeds; it never edits `.env`. Normal benchmark requests never
+retry a 400. If both variants fail, stop and ask. A temperature-related 400 is
+reported for review; no live evidence justifies dropping temperature yet.
+
+Documentation used for the request shape and usage accounting:
+
+- [Reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
+- [Opus 5.5 migration](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide)
+- [Structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
+- [Decisions](https://openrouter.ai/docs/guides/community/multimodal-decisions)
+
+## Retries, budget and persistence
+
+All four models use the same runner. Client timeouts and HTTP 408, 429, 500, 502,
+503, 504 retry with 0.5, 1, 2… second delays, within both retry limits. A numeric
+429 `Retry-After` from 0–10 seconds takes precedence. Invalid outputs retry without
+consuming a move. Other 4xx responses are not retried. HTTP 401/402 fail the whole
+run with `invalid key` / `insufficient credits`; pending work is stopped. Calls
+already in flight may have been billed and retain their ledger reservations.
+Exhausting the trial retry budget ends that trial with an explicit error.
+
+Run admission estimates each model's worst case as:
+
+```text
+attempts_per_trial = min(max_moves + MAX_TRIAL_RETRIES,
+                         max_moves * (max_retries + 1))
+per_call_usd = (300 * input_price + output_cap * output_price) / 1_000_000
+run_estimate = puzzle_count * attempts_per_trial * sum(per_model_call_cost)
+```
+
+Prices are centralized in `app/config.py`. Decisions use output cap zero; chat
+uses the current `CHAT_MAX_TOKENS`. At 160, the five-puzzle primary estimate is
+$0.744909. Before first live use, verify the reference prices against OpenRouter.
+HTTP 409 reports `estimated_max_cost_usd` and `remaining_budget_usd` if over budget.
+
+One live run may be active at a time (409 includes `active_run_id`). A completed
+live run with matching models, facelet set and move/timeout/retry/history settings
+cannot be submitted again (409 includes `duplicate_of_run_id`), even with new
+puzzle IDs or after restart. Mock runs are exempt. An explicit rerun override
+does not bypass the spend or call limits.
+
+Each live HTTP attempt reserves a conservative estimated JSONL row **before**
+network I/O, under one shared `asyncio.Lock`. A response atomically replaces its
+reservation with `usage.cost`, token counts, and the estimated flag. Missing cost,
+timeouts, cancellation and interrupted processes keep conservative accounting.
+This makes retries and abandoned calls survive restart without duplicate rows.
+Before each call, the ledger checks both caps and reserves its estimated cost;
+availability checks are free and are not counted. A malformed ledger fails closed.
+The run-finished INFO line includes calls, usage spend and remaining budget.
+The 300-input-token allowance is an estimate, not a provider billing guarantee;
+inspect measured prompt size before proceeding with the paid plan.
+
+`.runs/` stores puzzles, snapshots, full SSE logs, live/mock provenance and internal
+token/finish metadata. Each event flushes through a temporary file and atomic
+rename. Completed runs keep the same snapshot, statistics and replay after restart.
+Interrupted runs load as failed with unfinished trials marked `internal_error`,
+`interrupted by restart`; nothing is automatically resumed. Startup reads existing
+artifacts without rewriting them. No keys, request headers or prompt bodies are
+stored. Internal usage records do not change the public API shapes.
+
+**Ledger reset:** stop the backend and smoke scripts, then manually delete the
+file configured by `SPEND_LEDGER_PATH` (normally `backend/.spend/ledger.jsonl`).
+This resets local accounting, not actual provider charges. Do not use a reset to
+bypass the assignment's cumulative cap; preserve charged assignment evidence.
+Deleting `.runs` also removes replay and duplicate protection. Neither happens
+automatically. Run only one process against these files; stop the server while
+running the paid smoke/calibration CLI.
+
+## Offline tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
-Tests use scripted adapters and httpx mock transports; no real key or paid calls
-are needed. Coverage includes engine inverses and the normative R example,
-deterministic scrambling, exact shortest distances, parsing, retry/timeout
-accounting, cancellation, move limits, history windows, stats, schema validation,
-and SSE replay. The API integration test runs five puzzles against all four mock
-models. The fixture test is explicitly skipped until `/contract/fixtures/*.json`
-is supplied. Neither `/contract/openapi.yaml` nor shared fixtures existed on
-`main` at implementation time; shared-fixture conformance remains pending.
+The suite blocks real httpx transports globally. It uses deterministic adapters,
+mock transports and temporary storage. It validates the shared contract fixtures,
+retry policies, accounting, cancellation, persistence, duplicate guards, scripts,
+and payload limits. Do these checks before any live step.
 
-## Manual smoke test
+## Human-run smoke, calibration and benchmark order
 
-Start with `MOCK_MODELS=true`. In another PowerShell terminal:
+First rehearse all UI and recording actions in mock mode. Later, set a real key
+and `MOCK_MODELS=false`. Run from `backend`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/live_smoke.py
+.\.venv\Scripts\python.exe scripts/live_smoke.py --calibrate
+```
+
+Smoke normally sends exactly four calls, one per model, on solved-after-R. Only
+the explicit G2 compatibility probe may add a fifth. Fatal credentials/caps stop
+early. It prints the move, latency, prompt/completion/reasoning tokens, actual cost,
+finish reason and provider. Invalid moves, excessive/missing Opus prompt counts,
+or rejected requests cause a nonzero exit. Calibration sends three seeded Opus
+calls at cap 512 and recommends `clamp(ceil(1.5 * max_tokens_used / 32) * 32, 64, 512)`.
+It does not change configuration. All attempts, including probes, use the ledger.
+
+Stop and ask if cost exceeds $0.012/call, truncations exceed 20% at 512, or the
+recommended cap exceeds 192. Configure the approved calibrated cap and restart.
+Follow section 6.2 exactly; defaults are all four models, 30 moves, timeout 15,
+one retry per move, history six, concurrency one:
+
+| Order | Action | Suite/count/seed | Moves |
+|---|---|---|---:|
+| 0 | Mock dry run and recording rehearsal | Steps below, offline | As below |
+| 1 | pytest → smoke | Four probes | One call/model |
+| 2 | Calibration; update `.env` | Seeds 100, 101, 102 | One call/state |
+| 3 | Live rehearsal | warmup / 1 / 100 | 5 |
+| 4 | Live warm-up | warmup / 1 / 101 | 30 |
+| 5 | Primary, record this run | primary / 5 / 202 | 30 |
+| 6 | Optional, only if budget permits | extension / 2 / 303 | 30 |
+| 7 | Export and replay final slide | Persisted primary run | No calls |
+
+After each live step, stop if spend exceeds 1.5× the section 6.2 expectation,
+Opus truncations exceed 20%, a run aborted, or the next estimate exceeds remaining
+budget. Skip the optional extension if refused; never raise the cap or rerun a
+paid step casually. Demo retakes should reopen saved results.
+
+Example API creation in PowerShell (mock first):
 
 ```powershell
 $api = 'http://localhost:8000/api/v1'
-Invoke-RestMethod "$api/health"
-Invoke-RestMethod "$api/models"
-$puzzles = Invoke-RestMethod "$api/puzzles" -Method Post -ContentType 'application/json' -Body '{"suite":"primary","count":5,"seed":42}'
-$body = @{ puzzle_ids = @($puzzles.puzzles.puzzle_id); concurrency = 1 } | ConvertTo-Json
+$puzzles = Invoke-RestMethod "$api/puzzles" -Method Post -ContentType 'application/json' -Body '{"suite":"warmup","count":1,"seed":100}'
+$body = @{ puzzle_ids = @($puzzles.puzzles.puzzle_id); max_moves = 5 } | ConvertTo-Json
 $run = Invoke-RestMethod "$api/runs" -Method Post -ContentType 'application/json' -Body $body
 curl.exe -N "$api/runs/$($run.run_id)/events"
-Invoke-RestMethod "$api/runs/$($run.run_id)" | ConvertTo-Json -Depth 12
 Invoke-RestMethod "$api/runs/$($run.run_id)/stats" | ConvertTo-Json -Depth 8
 ```
 
-Expect 20 solved mock trials, ordered events ending with `run_finished`, and a
-100% mock success rate. Replay with `?after_seq=3` or header `Last-Event-ID: 3`.
-Run with `max_moves=1` to inspect unsuccessful `move_limit` trials. To cancel an
-active run, POST `/runs/{run_id}/cancel`; cancelling a finished run returns 409.
+## Offline export
 
-For a first **paid** manual test later, switch to real mode, generate one `warmup`
-puzzle, and create a run with one model and a small `max_moves` value. Then expand
-to the full primary suite after checking events, latency, and error handling.
+```powershell
+.\.venv\Scripts\python.exe scripts/export_results.py
+```
 
-## Architecture and operational behavior
+Writes `backend/results/benchmark_summary.md` and a CSV per saved run. Use
+`--output-dir <path>` for another destination. Export reads local artifacts only;
+it never invokes a model. Output includes all public model statistics, Opus
+accepted-move token averages, the saved token cap and reasoning setting,
+truncation counts across all attempts, and ledger
+spend per run/model and total (including smoke and calibration). The human can
+commit the resulting files for submission. No key or prompts are exported.
 
-- `app/engine`: pure 54-facelet permutations in URFDLB order; all 18 HTM moves.
-- `app/solver`: complete bidirectional BFS, exact through depth five. Extension
-  puzzles have `optimal_distance: null`. Search runs outside the event loop.
-- `app/adapters`: shared prompts, real HTTP adapters, catalog checks, mock adapter.
-- `app/runner`: one trial loop for every model, concurrency limit, cancellation,
-  retry counters, immutable per-run event log, ten-second SSE heartbeats.
-- `app/schemas.py`: strict request/response fields; `app/stats.py`: server metrics.
-- `app/api`: health, models, puzzles, run snapshots/cancellation, SSE, statistics.
-
-Storage is in memory: use **one Uvicorn worker**. Restarting or reloading clears
-puzzles, runs, and event history. Shutdown cancels outstanding work. The API is
-intended for local use without authentication. IDs are opaque prefixed UUIDs.
-
-Mock adapters deterministically reverse each scramble and report a fixed 1 ms
-accepted-call latency. They know the scramble and are for pipeline testing only;
-mock metrics are not evidence of model performance. Trial wall-clock time is
-still measured normally.
-
-Clarifications approved during implementation: mock mode bypasses the API-key
-requirement; cancellation marks unfinished trials `error` with code `conflict`.
-Cancelled trials that never started keep `started_at` and `total_time_s` null.
-Completed trials retain their results. Invalid outputs consume retries, not
-moves. Exhausted invalid-output retries result in a trial `upstream_error`.
-
-Partial success rates use all configured trials as their denominator; move
-latencies include accepted moves so far. Average total time uses trials with
-measured elapsed time, and gaps use solved trials with a known optimum. Empty
-averages are null. Winner IDs use configuration order to break ties.
-
-Live OpenRouter inference, frontend integration, and shared-fixture validation
-are intentionally left for the later testing stage. Setup and implementation
-notes are kept here because this work is restricted to `/backend`.
+Frontend and contract follow-ups remain owned by their maintainers, as recorded
+in `docs/HANDOFF.md`; this implementation changes `/backend` only.
