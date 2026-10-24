@@ -51,6 +51,11 @@ async def test_decisions_wire_format_and_confidence():
     [
         ('{"move":"R"}', "R"),
         ('{"move":"R3"}', None),
+        (json.dumps({"move": "R\n"}), None),
+        (json.dumps({"move": "R'\n"}), None),
+        (json.dumps({"move": "R2\r\n"}), None),
+        (json.dumps({"move": " R"}), None),
+        (json.dumps({"move": "R "}), None),
         ('```json\n{"move":"R"}\n```', None),
         ('{"move":"R","extra":true}', None),
         ('{"move":42}', None),
@@ -63,6 +68,10 @@ async def test_chat_strict_parsing(content, expected):
         assert request.url.path == "/api/v1/chat/completions"
         assert body["messages"][0]["content"].startswith(INSTRUCTIONS)
         pattern = body["response_format"]["json_schema"]["schema"]["properties"]["move"]["pattern"]
+        if "(?" in pattern:
+            return httpx.Response(
+                400, json={"error": {"message": "Invalid regex: lookaround is unsupported"}}
+            )
         assert all(re.search(pattern, move) for move in MOVES)
         assert not re.search(pattern, "R3")
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})

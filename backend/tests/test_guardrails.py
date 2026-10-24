@@ -184,14 +184,19 @@ async def test_opus_request_matches_endpoint_parameters(settings, effort):
     assert result.move == "R'"
 
 
-def test_compact_schema_matches_exact_move_enum():
+def test_compact_schema_uses_supported_regex_subset():
+    assert "(?" not in MOVE_PATTERN
+    assert "\\b" not in MOVE_PATTERN and "\\B" not in MOVE_PATTERN
     candidates = (
         "".join(chars)
         for length in range(4)
         for chars in itertools.product("UDLRFBudlrfb'23 \n\r", repeat=length)
     )
     for value in candidates:
-        assert bool(re.search(MOVE_PATTERN, value)) == (value in MOVES)
+        # Python/ECMA '$' can match before a final newline. The adapter must
+        # reject that case by exact MOVES membership, regardless of dialect.
+        expected = value in MOVES or (value.endswith("\n") and value[:-1] in MOVES)
+        assert bool(re.search(MOVE_PATTERN, value)) == expected
 
 
 async def execute(settings, handler, config=None):

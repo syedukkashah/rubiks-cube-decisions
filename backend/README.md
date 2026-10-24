@@ -65,10 +65,11 @@ is sent. The shared prompt and criteria are identical across interfaces. Chat ad
 > Reply immediately with only {"move":"<one allowed move>"}. No explanation.
 
 Shared criteria use `CW`, `CCW`, and `180`; the shared instructions define viewing
-direction and quarter turns. The strict move schema uses an anchored pattern
-equivalent to the 18-value enum, retaining a required string `move` and rejecting
-additional properties. Tests check the exact accepted move language, including
-trailing-newline rejection. This avoids duplicating the option list and keeps the
+direction and quarter turns. The strict move schema uses the supported anchored
+pattern `^[UDLRFB]['2]?$`, retaining a required string `move` and rejecting
+additional properties. The adapter then checks exact membership in the 18-move
+set, including trailing-newline rejection regardless of regex dialect. Tests
+cover both constraints. This avoids duplicating the option list and keeps the
 **entire request at 1,100 characters** under `json.dumps` with the default six-move
 history (including six two-character moves). JSON is transmitted compactly.
 Longer explicitly configured histories increase prompt size and estimated-token
@@ -108,6 +109,18 @@ the same strict schema, low reasoning effort, token cap and price limits.
 Offline tests cover routing against the advertised parameter set. Successful live
 inference after this fix is still pending; no token/provider response has yet
 confirmed compatibility of the remaining settings.
+
+**Schema compatibility fix (2026-10-24):** one authorized Opus-only probe after
+the temperature fix reached Azure but returned HTTP 400:
+`output_config.format.schema: Invalid regex in pattern field: Quantifier '?' without preceding element`.
+The original pattern used negative lookahead. Anthropic's
+[structured-output regex restrictions](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)
+exclude lookahead/lookbehind, so the request now uses only supported anchors,
+character classes and an optional suffix. Strict object fields and exact backend
+move validation remain in force; no invalid output is trimmed or coerced. The
+full request remains under 1,100 characters. Live verification of this second
+compatibility fix is pending. Failed probes remain conservatively accounted for
+in the existing ledger; no further inference is automatically attempted.
 
 Documentation used for the request shape and usage accounting:
 

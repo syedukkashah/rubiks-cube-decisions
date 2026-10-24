@@ -5,8 +5,9 @@ SHORT_ANSWER = 'Reply immediately with only {"move":"<one allowed move>"}. No ex
 CRITERIA = {
     move: "180" if move.endswith("2") else "CCW" if move.endswith("'") else "CW" for move in MOVES
 }
-# Equivalent to the 18-value enum, including rejection of trailing newlines.
-MOVE_PATTERN = r"^[UDLRFB]['2]?(?![\s\S])"
+# Use only Anthropic's supported regex subset (no lookaround). Exact membership
+# validation in ChatAdapter also rejects trailing newlines across regex dialects.
+MOVE_PATTERN = r"^[UDLRFB]['2]?$"
 
 
 def state_payload(state: str, recent_moves: list[str]) -> dict:
