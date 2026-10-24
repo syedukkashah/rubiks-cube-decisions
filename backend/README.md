@@ -215,6 +215,38 @@ paid step casually. Demo retakes should reopen saved results.
 
 Steps 3–5 are one session. There is no separate five-move live rehearsal in v1.3.0.
 
+### Diagnose a failed smoke request
+
+Stop after a failed smoke test; do not repeat all four models. First check the
+failed request in OpenRouter Activity, if an entry is available. The original
+generic `OpenRouter request failed` output cannot recover a discarded error body.
+
+Smoke errors now print bounded, redacted diagnostic fields: HTTP status, upstream
+code/message, provider/error type, nested provider message and request/generation
+IDs when supplied. Transport failures print the exception class, not its text.
+Full response bodies, request headers and arbitrary provider metadata are excluded.
+These details stay in the CLI output; public API errors and retry policy are unchanged.
+
+If the original cause is unavailable, a **separately human-approved paid probe** is:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/live_smoke.py --diagnose-opus
+```
+
+This makes at most **one Opus request**, at the existing token cap, reasoning,
+schema and price limits. It does not call the other three models, retry, run the
+compatibility fallback, or calibrate. Mock/key/budget checks still apply and the
+attempt goes into the existing ledger. Save the output and review it before
+authorizing further calls. A diagnostic success does not guarantee every future
+provider call will succeed. This probe is not a benchmark recording.
+
+Typical clues: HTTP 400/422 points to request validation; 403 to access/policy;
+404/503 can indicate no matching route; 429 to rate limits; 5xx to upstream
+failure. Use the returned message to decide, rather than changing settings based
+on status alone. Do not raise token/price limits or remove constraints just to
+make a request pass. A 200 response with `length` or empty content remains an
+invalid model response, not proof of an HTTP failure.
+
 ## One-click workflow: preview, record once, replay
 
 1. **Preview without a key.** Leave `MOCK_MODELS=true`, start the backend, and

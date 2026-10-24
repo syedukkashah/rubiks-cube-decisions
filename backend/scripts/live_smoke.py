@@ -28,7 +28,16 @@ def recommended_cap(tokens):
     return min(512, max(64, math.ceil(1.5 * max(tokens) / 32) * 32))
 
 
-async def run_smoke(settings, calibrate=False, transport=None, emit=print):
+def report_failure(model, error, emit):
+    emit(f"STOP: {model}: {error}")
+    if isinstance(error, UpstreamFailure):
+        emit(json.dumps({"model_id": model, "error_code": error.code, **error.diagnostics}))
+
+
+async def run_smoke(settings, calibrate=False, transport=None, emit=print, *, diagnose_opus=False):
+    if calibrate and diagnose_opus:
+        emit("Refusing: calibration and single-request diagnosis are separate paid steps.")
+        return 2
     if settings.mock_models or not settings.api_key:
         emit("Refusing: set MOCK_MODELS=false and configure OPENROUTER_API_KEY.")
         return 2
@@ -39,7 +48,10 @@ async def run_smoke(settings, calibrate=False, transport=None, emit=print):
     jobs = (
         [(CHAT_MODEL, scramble(Random(seed), 3)[1]) for seed in (100, 101, 102)]
         if calibrate
-        else [(model, apply_move(SOLVED, "R")) for model in MODEL_IDS]
+        else [
+            (model, apply_move(SOLVED, "R"))
+            for model in ([CHAT_MODEL] if diagnose_opus else MODEL_IDS)
+        ]
     )
     results = []
     failed = False
@@ -62,11 +74,13 @@ async def run_smoke(settings, calibrate=False, transport=None, emit=print):
                 except UpstreamFailure as error:
                     if (
                         not calibrate
+                        and not diagnose_opus
                         and model == CHAT_MODEL
                         and error.status == 400
                         and error.compatibility == "reasoning"
                         and settings.chat_reasoning_effort == "low"
                     ):
+                        report_failure(model, error, emit)
                         emit("G2 compatibility probe: one extra call omitting reasoning, same cap.")
                         alternate = replace(settings, chat_reasoning_effort="omit")
                         result = await call_model(
@@ -86,7 +100,7 @@ async def run_smoke(settings, calibrate=False, transport=None, emit=print):
                     else:
                         raise
             except (UpstreamFailure, BudgetExceeded) as error:
-                emit(f"STOP: {model}: {error}")
+                report_failure(model, error, emit)
                 if isinstance(error, UpstreamFailure) and error.compatibility == "temperature":
                     emit("Route rejected temperature; review G2 compatibility before proceeding.")
                 # Credentials/caps are fatal. Other errors still count as the model's one probe.
@@ -138,10 +152,18 @@ async def run_smoke(settings, calibrate=False, transport=None, emit=print):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--calibrate", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--calibrate", action="store_true")
+    mode.add_argument(
+        "--diagnose-opus",
+        action="store_true",
+        help="One paid Opus request at current settings; no retries or compatibility probe.",
+    )
     args = parser.parse_args()
     try:
-        return asyncio.run(run_smoke(Settings.from_env(), args.calibrate))
+        return asyncio.run(
+            run_smoke(Settings.from_env(), args.calibrate, diagnose_opus=args.diagnose_opus)
+        )
     except (ValueError, OSError):
         print("Refusing: invalid settings or unreadable local accounting files.", file=sys.stderr)
         return 2

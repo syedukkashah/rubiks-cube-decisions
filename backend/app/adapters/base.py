@@ -49,6 +49,43 @@ def scrub(text: str, api_key: str = "") -> str:
     return re.sub(r"sk-or-[A-Za-z0-9_-]+", "[REDACTED]", text)
 
 
+def error_diagnostics(response, body, error, api_key):
+    """Bounded, allowlisted CLI diagnostics; never retain headers or raw bodies."""
+    error = error if isinstance(error, dict) else {}
+    body = body if isinstance(body, dict) else {}
+    metadata = error.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    provider_error = metadata.get("raw")
+    if isinstance(provider_error, str):
+        try:
+            provider_error = json.loads(provider_error)
+        except ValueError:
+            provider_error = None
+    provider_error = provider_error if isinstance(provider_error, dict) else {}
+    provider_error = provider_error.get("error", provider_error)
+    provider_error = provider_error if isinstance(provider_error, dict) else {}
+    fields = {
+        "http_status": response.status_code,
+        "upstream_code": error.get("code"),
+        "message": error.get("message"),
+        "error_type": metadata.get("error_type"),
+        "provider_code": metadata.get("provider_code"),
+        "provider": metadata.get("provider_name") or body.get("provider"),
+        "provider_message": provider_error.get("message"),
+        "generation_id": body.get("id"),
+        "request_id": response.headers.get("x-request-id"),
+    }
+    result = {}
+    for name, value in fields.items():
+        if isinstance(value, str):
+            # Redact before clipping, including secrets nested inside provider JSON.
+            value = scrub(value, api_key)
+            result[name] = "".join(c if c.isprintable() else " " for c in value)[:1000]
+        elif type(value) is int:
+            result[name] = value
+    return result
+
+
 @dataclass(frozen=True)
 class MoveChoice:
     move: str | None
@@ -76,6 +113,7 @@ class UpstreamFailure(Exception):
         retry_after=None,
         usage=None,
         compatibility=None,
+        diagnostics=None,
     ):
         self.code = code
         self.status = status
@@ -84,6 +122,8 @@ class UpstreamFailure(Exception):
         self.retry_after = retry_after
         self.usage = usage or Usage()
         self.compatibility = compatibility
+        # Kept separate from str(error), which is used in public API responses.
+        self.diagnostics = diagnostics or {}
         super().__init__(
             "invalid key"
             if status == 401
@@ -131,10 +171,12 @@ class HTTPAdapter:
                 },
                 timeout=timeout_s,
             )
-        except httpx.TimeoutException:
-            raise UpstreamFailure("upstream_timeout") from None
-        except httpx.HTTPError:
-            raise UpstreamFailure() from None
+        except httpx.TimeoutException as error:
+            raise UpstreamFailure(
+                "upstream_timeout", diagnostics={"transport_error": type(error).__name__}
+            ) from None
+        except httpx.HTTPError as error:
+            raise UpstreamFailure(diagnostics={"transport_error": type(error).__name__}) from None
         raw = scrub(response.text, self._api_key)
         try:
             body = json.loads(raw)
@@ -174,5 +216,6 @@ class HTTPAdapter:
                 retry_after=retry_after,
                 usage=Usage.parse(body),
                 compatibility=compatibility,
+                diagnostics=error_diagnostics(response, body, error, self._api_key),
             )
         return body, raw, started
