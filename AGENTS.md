@@ -512,7 +512,7 @@ backend/
 
 ### 6.1 Cost guardrails — backend refactor (Codex)
 
-**Goal:** run the **full benchmark once** (section 6.2: warm-up, 10-puzzle primary, extension) for an expected **~$1.10** of OpenRouter spend including the credit-purchase fee (range ~$0.40–$3.60), under a hard ceiling of **$5.00**. Opus 5.5 cannot run without thinking; see G2. All four models still play under identical rules. Almost all spend comes from Claude Opus 5.5, mostly its output and reasoning tokens if left uncapped. The three Decisions models cost fractions of a cent per run because they return no output tokens. The guardrails therefore focus on (a) keeping Opus's always-on thinking as short as possible and hard-capping its total output, (b) keeping prompts short, (c) bounding call counts, (d) refusing runs that could exceed a hard budget, and (e) never paying twice for the same run (G11–G13).
+**Goal:** run the **full benchmark once** (section 6.2: 1 warm-up, 5-puzzle primary, 2-puzzle extension) for an expected **~$0.70** of OpenRouter spend including the credit-purchase fee (optimistic ~$0.30, pessimistic ~$1.00), under a **hard ceiling of $1.20 for the entire assignment, fee included**. The code enforces this as `MAX_SPEND_USD = 1.10` of usage cost (about $1.16 after a ~5.5% credit-purchase fee). Nothing in this repo may raise it above 1.10. Opus 5.5 cannot run without thinking; see G2. All four models still play under identical rules. Almost all spend comes from Claude Opus 5.5, mostly its output and reasoning tokens if left uncapped. The three Decisions models cost fractions of a cent per run because they return no output tokens. The guardrails therefore focus on (a) keeping Opus's always-on thinking as short as possible and hard-capping its total output, (b) keeping prompts short, (c) bounding call counts, (d) refusing runs that could exceed a hard budget, and (e) never paying twice for the same run (G11–G13).
 
 Reference prices, checked 2026-10-24. Re-verify them on the OpenRouter model pages before the first live run, and keep them in one table in `config.py`:
 
@@ -529,9 +529,10 @@ Reference prices, checked 2026-10-24. Re-verify them on the OpenRouter model pag
 |---|---|---|
 | `OPENROUTER_API_KEY` | empty | Unchanged; never logged or returned |
 | `MOCK_MODELS` | `true` (also the code default when unset) | Live calls happen only when explicitly set to `false`. Log a loud `MOCK MODE`/`LIVE MODE` banner at startup. |
-| `MAX_SPEND_USD` | `5.00` | Hard spend cap across all live runs (persisted ledger, G5). Sized so every 6.2 step passes the worst-case pre-check; expected real spend is ~25% of it. |
+| `MAX_SPEND_USD` | `1.10` | Hard usage-spend cap across all live runs (persisted ledger, G5). With the ~5.5% credit-purchase fee this is about $1.16, under the $1.20 assignment ceiling. **Settings parsing must reject any value above `1.10`** (it may be lowered, never raised, without a human editing this file). |
+| `MAX_TRIAL_RETRIES` | `3` | Total retries allowed per trial across all moves. When exceeded, the trial ends `error` (G4). Bounds worst-case attempts per trial to `max_moves + MAX_TRIAL_RETRIES`. |
 | `MAX_LIVE_CALLS` | `2000` | Hard cap on live inference HTTP attempts (persisted ledger). Runaway-loop backstop. |
-| `CHAT_MAX_TOKENS` | `256` (provisional until G7 calibration) | `max_tokens` for the chat adapter. Hard limit on thinking + answer combined. Must be 64–512. |
+| `CHAT_MAX_TOKENS` | `160` (provisional until G7 calibration) | `max_tokens` for the chat adapter. Hard limit on thinking + answer combined. Must be 64–512. |
 | `CHAT_REASONING_EFFORT` | `low` | Value sent as `reasoning.effort` to Opus. `low` is the lowest level Opus 5.5 accepts. Allowed: `low`, or `omit` (no `reasoning` field) via the G2 compatibility fallback. Anything else needs human approval (G10). |
 | `MAX_TIMEOUT_S` | `20` | Upper bound accepted for `RunConfig.timeout_s` |
 | `MAX_RETRIES_CAP` | `1` | Upper bound accepted for `RunConfig.max_retries` |
@@ -549,7 +550,7 @@ So the guardrail is: **lowest effort, a short-answer instruction, and a hard tot
 
 ```json
 {
-  "max_tokens": 256,
+  "max_tokens": 160,
   "temperature": 0,
   "reasoning": { "effort": "low", "exclude": true },
   "response_format": { "type": "json_schema", "json_schema": { "...": "unchanged strict schema" } },
@@ -570,7 +571,7 @@ So the guardrail is: **lowest effort, a short-answer instruction, and a hard tot
   - If OpenRouter returns 400 for `reasoning.effort: "low"` together with a small `max_tokens` (e.g. it derives a 1,024-token minimum budget), retry the smoke test once **without** the `reasoning` field, keeping `max_tokens` and the short-answer line.
   - If that works, make "omit `reasoning`" the configured behaviour (`CHAT_REASONING_EFFORT=omit`) and record it in the README.
   - If both fail, stop and ask the human.
-- **Stop and ask the human** if calibration (G7) shows a truncation rate above 20% at `CHAT_MAX_TOKENS=512`, or the measured Opus cost per call exceeds $0.012. Never raise `CHAT_MAX_TOKENS` above 512 or effort above `low` on your own.
+- **Stop and ask the human** if calibration (G7) shows a truncation rate above 20% at `CHAT_MAX_TOKENS=512`, the measured Opus cost per call exceeds $0.012, or the recommended `CHAT_MAX_TOKENS` is above 192 (the 5-puzzle primary run would no longer pass the $1.10 pre-check). Never raise `CHAT_MAX_TOKENS` above 512 or effort above `low` on your own.
 
 #### G3. Compact shared prompt (both interfaces)
 
@@ -588,6 +589,7 @@ So the guardrail is: **lowest effort, a short-answer instruction, and a hard tot
 | Invalid output (`malformed_response`, `illegal_move`) | Yes, up to `max_retries` | Unchanged (consumes retries, not moves) |
 | HTTP 400, 403, 404, 422 | **No** | Trial ends `error` (`upstream_error`). Same request would fail again. |
 | HTTP 401 (bad key) or 402 (out of credits) | **No** | **Abort the whole run:** run-level `error` event (`upstream_error`, message says "invalid key" / "insufficient credits"), remaining trials `error`, run `failed`. |
+| Per-trial retry budget (`MAX_TRIAL_RETRIES`) exhausted | **No** | Trial ends `error` (`upstream_error` or `malformed_response`, message says "trial retry budget exhausted"). Applies identically to every model. |
 | Spend or call cap reached mid-run (G5) | **No** | Abort the whole run the same way; code `conflict`, message `"Live spend cap reached"` / `"Live call cap reached"`. |
 
 - Every HTTP attempt to an inference endpoint counts toward `MAX_LIVE_CALLS`, including retries. Availability checks (`GET /models/{id}/endpoints`) are free and do not count.
@@ -600,8 +602,9 @@ So the guardrail is: **lowest effort, a short-answer instruction, and a hard tot
   - Take `cost_usd` from the response's `usage.cost`, which OpenRouter includes in every response.
   - If `usage.cost` is missing (e.g. after a timeout), write a conservative estimate from the price table using the request's max possible tokens, with `"estimated": true`.
 - On startup, sum the ledger to restore `spent_usd` and `live_calls`, so a restart does not reset the budget. Resetting the budget means deleting the file by hand. Document this in the backend README.
-- **Pre-check on `POST /runs`** (real mode only): estimate the worst-case cost of the requested run and return `409 conflict` (details in 5.6) if it exceeds `MAX_SPEND_USD − spent_usd`. Worst case per trial = `max_moves × (max_retries + 1)` calls. Per-call cost = price-table input price × the measured prompt-size constant (default 300 input tokens) + output price × (`CHAT_MAX_TOKENS` for chat, 0 for Decisions).
-  - Worst-case pre-check figures with the provisional `CHAT_MAX_TOKENS=256` (Opus ≈ $0.0063 per call, 300 input tokens): warm-up run (2 puzzles) $0.77, primary run (10 puzzles) $3.86, extension run (3 puzzles) $1.16. With `CHAT_MAX_TOKENS=128` they drop to $0.46 / $2.32 / $0.70. Each passes against the $5.00 cap at its point in the 6.2 sequence, even in the pessimistic spend case.
+- **Pre-check on `POST /runs`** (real mode only): estimate the worst-case cost of the requested run and return `409 conflict` (details in 5.6) if it exceeds `MAX_SPEND_USD − spent_usd`. Worst case per trial = `max_moves + MAX_TRIAL_RETRIES` calls (never more than `max_moves × (max_retries + 1)`). Per-call cost = price-table input price × the measured prompt-size constant (default 300 input tokens) + output price × (`CHAT_MAX_TOKENS` for chat, 0 for Decisions).
+  - Worst-case pre-check figures with the provisional `CHAT_MAX_TOKENS=160` (Opus ≈ $0.0044 per call at 300 input tokens; the three Decisions models together ≈ $0.00011 per round), 33 attempts per trial: warm-up run (1 puzzle) ≈ $0.15, primary run (5 puzzles) ≈ $0.75, extension run (2 puzzles) ≈ $0.30. Against the $1.10 cap these fit one after another only if the earlier steps spent about what they were expected to. If the pre-check refuses a step (most likely the optional extension run), skip or shrink it; never raise the cap.
+  - The pre-check scales with `CHAT_MAX_TOKENS`: at 256 the primary run alone is ≈ $1.06 and is refused. If calibration recommends a value above 192, stop and ask the human (G2).
   - The pre-check uses the current `CHAT_MAX_TOKENS`, so the figures shrink automatically after calibration lowers it.
 - **Mid-run backstop:** before each live attempt, if `spent_usd ≥ MAX_SPEND_USD` or `live_calls ≥ MAX_LIVE_CALLS`, abort the run per G4. This should never trigger when the pre-check passed. If it does, that indicates a bug or wrong prices.
 - Log a one-line summary at `INFO` when each run finishes: calls made, `spent_usd` for the run, remaining budget. Never log the key.
@@ -660,7 +663,7 @@ The written analysis must:
 - report the measured average Opus `completion_tokens` and `reasoning_tokens` per move, and the number of truncated (`finish_reason: "length"`) responses;
 - discuss how the cap may limit Opus's quality, because it bears on question 5 ("fast decision model vs. frontier LLM").
 
-An optional, separately budgeted extension run may use a higher effort and a larger `CHAT_MAX_TOKENS`, but only with human approval and a raised `MAX_SPEND_USD`. Its results must be labelled as a separate configuration.
+An optional, separately budgeted extension run may use a higher effort and a larger `CHAT_MAX_TOKENS`, but only with human approval, and it must still fit inside the $1.20 assignment ceiling (`MAX_SPEND_USD` can never exceed 1.10). Its results must be labelled as a separate configuration.
 
 #### G11. Persist everything so nothing is paid for twice
 
@@ -696,27 +699,30 @@ Every live step below is run **once**. Seeds are fixed so the puzzles are reprod
 | 0 | mock | Run steps 3–6 end to end in mock mode, open the dashboard and `/slide`, and do a full dry-run of the screen recording. Fix everything here. | 0 | $0 |
 | 1 | live | `live_smoke.py`: 1 call per model | 1 / 1 | < $0.01 |
 | 2 | live | `live_smoke.py --calibrate` (3 Opus calls); then set `CHAT_MAX_TOKENS` in `.env` and restart | 3 / 3 | < $0.04 |
-| 3 | live | Rehearsal: `warmup`, `count 1`, `seed 100`, `max_moves 5` | ≤ 5 / 10 | < $0.04 |
-| 4 | live | Warm-up run: `warmup`, `count 2`, `seed 101` | ~25 / 120 | ~$0.08 |
-| 5 | live | **Primary run: `primary`, `count 10`, `seed 202`. One run, so the dashboard and slide cover all 10 puzzles. Screen-record this run** (in-progress + completion stages). | ~190 / 600 | ~$0.62 |
-| 6 | live | Extension run: `extension`, `count 3`, `seed 303` | ~95 / 180 | ~$0.30 |
+| 3 | live | Rehearsal: `warmup`, `count 1`, `seed 100`, `max_moves 5` | ≤ 5 / 8 | < $0.03 |
+| 4 | live | Warm-up run: `warmup`, `count 1`, `seed 101` | ~6 / 33 | ~$0.03 |
+| 5 | live | **Primary run: `primary`, `count 5`, `seed 202` (the assignment minimum: 5 puzzles × 4 models = 20 trials). One run, so the dashboard and slide cover all 5 puzzles. Screen-record this run** (in-progress + completion stages). | ~95 / 165 | ~$0.33 |
+| 6 | live | **Optional** extension run: `extension`, `count 2`, `seed 303`. Run it only if the pre-check passes and the gates below are green; otherwise skip it and say so in the write-up. | ~65 / 66 | ~$0.20 |
 | 7 | offline | `export_results.py`; record the final slide from the persisted primary run | 0 | $0 |
 
 **Gates between live steps.** After each live step, read the run-finished log line (G5) or the ledger and stop to reconsider before going on if any of these hold:
 - the step cost more than 1.5× its expected cost;
 - Opus truncations exceed 20% of its calls;
-- any run aborted (401/402/cap).
+- any run aborted (401/402/cap);
+- total ledger spend so far plus the next step's worst-case pre-check would exceed `MAX_SPEND_USD` (the backend refuses it anyway).
 
-Never "just rerun" a live step. A rerun needs a deliberate decision, `ALLOW_LIVE_RERUN=true`, and a note in the written analysis.
+Never "just rerun" a live step. A rerun needs a deliberate decision, `ALLOW_LIVE_RERUN=true`, a ledger that still has headroom, and a note in the written analysis.
 
 **Recording.** Rehearse the recording in step 0. Record step 5 live, with step 4 as a backup in-progress clip. Retakes of the completion stage or slide use the persisted run (G11), never a new live run.
 
-**Total (with ~5.5% credit purchase fee):**
-- **expected ≈ $1.10**;
-- optimistic ≈ $0.40 (Opus solves most primary puzzles in ~8 moves, ~40 output tokens per move);
-- pessimistic ≈ $3.60 (Opus fails everything and hits the token cap every move).
+**Total (usage cost, then with the ~5.5% credit-purchase fee):**
+- **expected ≈ $0.64 usage ≈ $0.68 with fee**;
+- optimistic ≈ $0.25 (Opus solves most primary puzzles in ~8 moves, ~40 output tokens per move);
+- pessimistic ≈ $0.95 usage ≈ $1.00 with fee (Opus fails every puzzle and hits the token cap every move; the pre-check then refuses the extension run). The ledger cap stops anything beyond $1.10 usage, so the assignment can never exceed about $1.16, under the $1.20 ceiling.
 
-The decision models total ≈ $0.06 in every case. Five extension puzzles instead of three would add ~$0.20 expected.
+The decision models total ≈ $0.04 in every case.
+
+**Funding (human, outside the code).** Add only enough credit to cover the plan (about $1.20 in total, fee included). Create a dedicated OpenRouter key with a **credit limit of $1.10** as an independent backstop, and delete the key after submission.
 ---
 
 ## 7. Contract change protocol
@@ -795,7 +801,7 @@ frontend/
 | M3 | Backend real adapters + runs/SSE/stats | Codex | Real OpenRouter calls verified against current docs; run/SSE/stats endpoints match fixtures |
 | M3.5 | Cost guardrails | Codex | Section 6.1 (G1–G13) implemented, including persistence, the duplicate-run guard and the export script; G8 tests green; `live_smoke.py` and `--calibrate` pass; Opus `prompt_tokens ≤ 250`; calibrated `CHAT_MAX_TOKENS`, measured Opus tokens/cost per call, and the chosen G2 variant (effort `low` or `omit`) recorded in backend README |
 | M4 | Integration | Both (own side each) | Frontend with `VITE_USE_MOCKS=false` runs a warm-up end to end against the backend |
-| M5 | Experiments | Human, following 6.2 | Steps 0–7 of 6.2 done once: 2 warm-up, 10 primary (40 trials) and 3 extension puzzles × 4 models; `results/` exported; total spend from the ledger recorded |
+| M5 | Experiments | Human, following 6.2 | Steps 0–7 of 6.2 done once: 1 warm-up, 5 primary (20 trials) and, if the pre-check allows, 2 extension puzzles × 4 models; `results/` exported; total spend from the ledger recorded |
 | M6 | Demo & submission | Human | Checklist in section 11 complete |
 
 M1 and M2 proceed in parallel after M0. Neither agent starts M4 until both M1/M2 (and M3 on the backend side) are done.
