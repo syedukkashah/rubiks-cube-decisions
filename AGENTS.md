@@ -467,7 +467,7 @@ choose_move(state: facelets, recent_moves: list[str], allowed_moves: list[str], 
 ```
 
 - **Decisions API** (`typesafe/jev-1.13`, `openai/gpt-6-luna-decisions`, `cloudflare/clef`): send `state` = `{ "cube_facelets": "<54 chars>", "recent_moves": [...] }` and one `choice` question named `next_move` whose `criteria` maps each of the 18 moves to a human-readable description. Question `instructions` and criteria text are one shared constant; only `model` changes. Capture a confidence/probability field if the response has one.
-- **Chat completions** (`anthropic/claude-opus-5.5`): send the same state, the same 18 allowed moves and the same recent-move window, and require exactly `{"move": "R'"}` via structured-output / JSON-schema constraint where the route supports it. Output is hard-capped (`max_tokens`, reasoning off, `temperature: 0`) per section 6.1.
+- **Chat completions** (`anthropic/claude-opus-5.5`): send the same state, the same 18 allowed moves and the same recent-move window, and require exactly `{"move": "R'"}` via structured-output / JSON-schema constraint where the route supports it. Total output (adaptive thinking + answer) is hard-capped with `max_tokens` at the lowest effort level, `temperature: 0`, per section 6.1 G2.
 - Validation: the returned move must be in the 18-move set. Otherwise it is an invalid output: log it, count it, retry per policy, never substitute a move. A truncated chat response (`finish_reason: "length"` or empty content) is a `malformed_response`.
 - Both adapters also return the response's `usage` (`input/prompt tokens`, `output/completion tokens`, `reasoning_tokens` if present, `cost`) to the runner for the spend ledger (6.1). This is internal only and never appears in API responses.
 
@@ -512,7 +512,7 @@ backend/
 
 ### 6.1 Cost guardrails — backend refactor (Codex)
 
-**Goal:** keep total live OpenRouter spend for the whole assignment at roughly **$0.10–$0.50**. All four models still play under identical rules. Almost all spend comes from Claude Opus 5.5, mostly its output and reasoning tokens if left uncapped. The three Decisions models cost fractions of a cent per run because they return no output tokens. The guardrails therefore focus on (a) stopping Opus from generating long reasoning, (b) keeping prompts short, (c) bounding call counts, and (d) refusing runs that could exceed a hard budget.
+**Goal:** run the **full benchmark once** (section 6.2: warm-up, 10-puzzle primary, extension) for an expected **~$1.10** of OpenRouter spend including the credit-purchase fee (range ~$0.40–$3.60), under a hard ceiling of **$5.00**. Opus 5.5 cannot run without thinking; see G2. All four models still play under identical rules. Almost all spend comes from Claude Opus 5.5, mostly its output and reasoning tokens if left uncapped. The three Decisions models cost fractions of a cent per run because they return no output tokens. The guardrails therefore focus on (a) keeping Opus's always-on thinking as short as possible and hard-capping its total output, (b) keeping prompts short, (c) bounding call counts, (d) refusing runs that could exceed a hard budget, and (e) never paying twice for the same run (G11–G13).
 
 Reference prices, checked 2026-10-24. Re-verify them on the OpenRouter model pages before the first live run, and keep them in one table in `config.py`:
 
@@ -529,40 +529,53 @@ Reference prices, checked 2026-10-24. Re-verify them on the OpenRouter model pag
 |---|---|---|
 | `OPENROUTER_API_KEY` | empty | Unchanged; never logged or returned |
 | `MOCK_MODELS` | `true` (also the code default when unset) | Live calls happen only when explicitly set to `false`. Log a loud `MOCK MODE`/`LIVE MODE` banner at startup. |
-| `MAX_SPEND_USD` | `1.00` | Hard spend cap across all live runs (persisted ledger, G5) |
+| `MAX_SPEND_USD` | `5.00` | Hard spend cap across all live runs (persisted ledger, G5). Sized so every 6.2 step passes the worst-case pre-check; expected real spend is ~25% of it. |
 | `MAX_LIVE_CALLS` | `2000` | Hard cap on live inference HTTP attempts (persisted ledger). Runaway-loop backstop. |
-| `CHAT_MAX_TOKENS` | `16` | `max_tokens` for the chat adapter. `{"move": "R'"}` is under 10 tokens. |
-| `CHAT_REASONING_EFFORT` | `none` | Value sent as `reasoning.effort` to Opus. `none` = no thinking tokens. |
+| `CHAT_MAX_TOKENS` | `256` (provisional until G7 calibration) | `max_tokens` for the chat adapter. Hard limit on thinking + answer combined. Must be 64–512. |
+| `CHAT_REASONING_EFFORT` | `low` | Value sent as `reasoning.effort` to Opus. `low` is the lowest level Opus 5.5 accepts. Allowed: `low`, or `omit` (no `reasoning` field) via the G2 compatibility fallback. Anything else needs human approval (G10). |
 | `MAX_TIMEOUT_S` | `20` | Upper bound accepted for `RunConfig.timeout_s` |
 | `MAX_RETRIES_CAP` | `1` | Upper bound accepted for `RunConfig.max_retries` |
 | `SPEND_LEDGER_PATH` | `backend/.spend/ledger.jsonl` | Spend ledger file; the `.spend/` directory is git-ignored |
+| `RUNS_DIR` | `backend/.runs` | Persisted puzzles, run snapshots and event logs (G11); git-ignored |
+| `ALLOW_LIVE_RERUN` | `false` | When `false`, a live run identical to an already-completed live run is refused (G12) |
 
 Settings parsing must reject non-numeric or negative values at startup with a clear error.
 
-#### G2. Chat adapter (Opus) — output hard cap
+#### G2. Chat adapter (Opus) — lowest effort + total-output hard cap
 
-Request body additions to the existing chat-completions request:
+**Fact (verified 2026-10-24):** Opus 5.5 always runs with adaptive thinking and it cannot be disabled. Anthropic rejects `thinking: {"type": "disabled"}` and manual budgets with HTTP 400 ([migration guide](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide)). OpenRouter rejects `reasoning.effort: "none"` for Claude and maps `minimal` to `low` ([reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)). Effort (`low`…`max`, default `medium`) is the only thinking control. `max_tokens` is a hard limit on thinking + answer combined, and thinking is billed as output.
+
+So the guardrail is: **lowest effort, a short-answer instruction, and a hard total-output cap.** Request body additions to the existing chat-completions request:
 
 ```json
 {
-  "max_tokens": 16,
+  "max_tokens": 256,
   "temperature": 0,
-  "reasoning": { "effort": "none" },
+  "reasoning": { "effort": "low", "exclude": true },
   "response_format": { "type": "json_schema", "json_schema": { "...": "unchanged strict schema" } },
-  "provider": { "require_parameters": true }
+  "provider": {
+    "require_parameters": true,
+    "max_price": { "prompt": 4, "completion": 20 }
+  }
 }
 ```
 
-- Thinking tokens are billed as output and count against `max_tokens`. With `max_tokens: 16`, any reasoning would truncate the answer. Reasoning must therefore be **off**.
-- **Verify** in OpenRouter's reasoning-tokens docs that `anthropic/claude-opus-5.5` accepts `reasoning.effort: "none"`. Confirm it in the G7 smoke test: `usage.completion_tokens_details.reasoning_tokens` must be `0` or absent.
-- If the route rejects disabling reasoning, or still returns reasoning tokens, **stop and ask the human**. Do not silently raise `max_tokens`. Any reasoning setting has a 1,024-token minimum budget, which multiplies Opus cost about 30–60×.
-- `finish_reason == "length"`, empty `content`, or content that fails the strict schema ⇒ `malformed_response`. It is counted and retried per policy, never repaired.
-- `temperature: 0` keeps Opus as deterministic as the route allows.
+- `max_tokens` = `CHAT_MAX_TOKENS`, `reasoning.effort` = `CHAT_REASONING_EFFORT`. Never send `"none"` and never send a `thinking` object.
+- `exclude: true` only hides the thinking text from the response. It is still billed. Its purpose is to keep `raw_response` small.
+- `max_price` keeps routing off the $8/$40 fast endpoint and the $4.40/$22 EU endpoints. If OpenRouter rejects `temperature` alongside thinking for this route, drop `temperature` and note it in the README. Do not drop `max_price`.
+- Chat-only output-format line (appended after the shared `INSTRUCTIONS`, see G3): `Reply immediately with only {"move":"<one allowed move>"}. No explanation.` This steers adaptive thinking to stay short. It is part of the chat output-format requirement, not the shared state or options, so fairness rule 3.1 holds. Document it in the README.
+- `finish_reason == "length"`, empty `content`, or content that fails the strict schema ⇒ `malformed_response`. It is counted and retried per policy, never repaired. Truncations caused by thinking hitting the cap are real Opus failures under this configuration and are reported as such.
+- Record `usage.completion_tokens` and `usage.completion_tokens_details.reasoning_tokens` for every Opus call in the ledger (G5).
+- **Compatibility fallback (decided now, no need to ask):**
+  - If OpenRouter returns 400 for `reasoning.effort: "low"` together with a small `max_tokens` (e.g. it derives a 1,024-token minimum budget), retry the smoke test once **without** the `reasoning` field, keeping `max_tokens` and the short-answer line.
+  - If that works, make "omit `reasoning`" the configured behaviour (`CHAT_REASONING_EFFORT=omit`) and record it in the README.
+  - If both fail, stop and ask the human.
+- **Stop and ask the human** if calibration (G7) shows a truncation rate above 20% at `CHAT_MAX_TOKENS=512`, or the measured Opus cost per call exceeds $0.012. Never raise `CHAT_MAX_TOKENS` above 512 or effort above `low` on your own.
 
 #### G3. Compact shared prompt (both interfaces)
 
 - Rewrite `app/adapters/prompts.py` so the shared `INSTRUCTIONS` is at most ~60 tokens and each of the 18 `CRITERIA` values is a short phrase, e.g. `"U": "Up face 90° clockwise"`, `"U'": "Up face 90° counter-clockwise"`, `"U2": "Up face 180°"`. Keep the facelet-format explanation to one sentence (URFDLB order, 9 row-major stickers per face, letter = home-centre face).
-- Both adapters keep using the **same** constants (fairness rule 3.1). Chat system prompt = `INSTRUCTIONS` + one line requiring `{"move": "<one allowed move>"}` + the criteria JSON. User message = the state JSON only. No examples, no chain-of-thought request, no extra prose.
+- Both adapters keep using the **same** constants (fairness rule 3.1). Chat system prompt = `INSTRUCTIONS` + the G2 short-answer line + the criteria JSON. User message = the state JSON only. No examples, no chain-of-thought request, no extra prose.
 - Serialize JSON compactly (`separators=(",", ":")`).
 - `recent_moves` stays capped by `history_window` (default 6), which is already enforced in the runner.
 - Budget: Opus `usage.prompt_tokens` should be **≤ 250** per call. Enforce it in a unit test that builds both request bodies and asserts `len(json.dumps(body))` ≤ 1,100 characters for the chat payload. Record the real `prompt_tokens` from the G7 smoke test in the backend README.
@@ -588,7 +601,8 @@ Request body additions to the existing chat-completions request:
   - If `usage.cost` is missing (e.g. after a timeout), write a conservative estimate from the price table using the request's max possible tokens, with `"estimated": true`.
 - On startup, sum the ledger to restore `spent_usd` and `live_calls`, so a restart does not reset the budget. Resetting the budget means deleting the file by hand. Document this in the backend README.
 - **Pre-check on `POST /runs`** (real mode only): estimate the worst-case cost of the requested run and return `409 conflict` (details in 5.6) if it exceeds `MAX_SPEND_USD − spent_usd`. Worst case per trial = `max_moves × (max_retries + 1)` calls. Per-call cost = price-table input price × the measured prompt-size constant (default 300 input tokens) + output price × (`CHAT_MAX_TOKENS` for chat, 0 for Decisions).
-  - Approximate worst-case figures with the defaults: 5 primary puzzles × 4 models ≈ $0.50; the full 17-puzzle plan ≈ $1.70. The full plan therefore needs `MAX_SPEND_USD` raised to 2, which is a deliberate human decision.
+  - Worst-case pre-check figures with the provisional `CHAT_MAX_TOKENS=256` (Opus ≈ $0.0063 per call, 300 input tokens): warm-up run (2 puzzles) $0.77, primary run (10 puzzles) $3.86, extension run (3 puzzles) $1.16. With `CHAT_MAX_TOKENS=128` they drop to $0.46 / $2.32 / $0.70. Each passes against the $5.00 cap at its point in the 6.2 sequence, even in the pessimistic spend case.
+  - The pre-check uses the current `CHAT_MAX_TOKENS`, so the figures shrink automatically after calibration lowers it.
 - **Mid-run backstop:** before each live attempt, if `spent_usd ≥ MAX_SPEND_USD` or `live_calls ≥ MAX_LIVE_CALLS`, abort the run per G4. This should never trigger when the pre-check passed. If it does, that indicates a bug or wrong prices.
 - Log a one-line summary at `INFO` when each run finishes: calls made, `spent_usd` for the run, remaining budget. Never log the key.
 
@@ -601,17 +615,20 @@ The reference implementation (`muhammad1234-max/AI-Engineering-Assignment2`) was
 - **Routing by substring.** Routing to an interface by model-ID substring matching. Keep the explicit registry.
 - **Random wrong moves in mock mode.** Mock mode stays deterministic (rule 6.8).
 
-#### G7. Live smoke test script
+#### G7. Live smoke test and Opus calibration script
 
-`backend/scripts/live_smoke.py`: makes **exactly one** call per model (4 calls total, about $0.002) on the solved-after-`R` state from 4.2. Requires `MOCK_MODELS=false` and a key; refuses to run otherwise. For each model it prints: move returned, latency, `prompt_tokens`, `completion_tokens`, `reasoning_tokens`, `usage.cost`, `finish_reason`. It writes to the spend ledger like any other call. Exit code ≠ 0 if any model returned an invalid move, reasoning tokens > 0 for Opus, or Opus `prompt_tokens` > 250.
+`backend/scripts/live_smoke.py`. It requires `MOCK_MODELS=false` and a key, and refuses to run otherwise. Every call is written to the spend ledger.
 
-Run order before any benchmark: `pytest` → `live_smoke.py` → 1 warm-up puzzle × 4 models with `max_moves: 5` → primary suite.
+1. **Smoke (default):** exactly one call per model (4 calls) on the solved-after-`R` state from 4.2, using the configured settings. For each model print: move returned, latency, `prompt_tokens`, `completion_tokens`, `reasoning_tokens`, `usage.cost`, `finish_reason`, provider. Exit code ≠ 0 if any model returned an invalid move, Opus `prompt_tokens` > 250, or the G2 request was rejected (then apply the G2 compatibility fallback).
+2. **Calibrate (`--calibrate`):** 3 Opus calls with `max_tokens=512` (worst case ≈ $0.035 total) on 3 fixed warm-up states (seeded), same prompt and effort. Print `completion_tokens` and `reasoning_tokens` per call, and recommend `CHAT_MAX_TOKENS = clamp(round_up_to_32(1.5 × max completion_tokens), 64, 512)`. The human then sets that value in `.env`. Stop-and-ask conditions from G2 apply.
+
+Run order: follow section 6.2 exactly.
 
 #### G8. Tests (offline, no network)
 
 Add pytest cases for:
 
-- **Chat request body:** contains `max_tokens = CHAT_MAX_TOKENS`, `temperature = 0`, `reasoning.effort = CHAT_REASONING_EFFORT`; payload-size bound from G3.
+- **Chat request body:** contains `max_tokens = CHAT_MAX_TOKENS`, `temperature = 0`, `reasoning.effort = CHAT_REASONING_EFFORT` (or no `reasoning` field when set to `omit`), never `"none"` and never a `thinking` object, plus `provider.max_price`; payload-size bound from G3; settings reject `CHAT_MAX_TOKENS` outside 64–512 and any effort other than `low`/`omit`.
 - **Shared prompt:** Decisions and chat bodies carry the same `INSTRUCTIONS` and `CRITERIA` strings.
 - **Truncation:** `finish_reason: "length"` and empty content ⇒ `malformed_response`.
 - **Retry matrix:** each G4 row, using an httpx mock transport, asserting retry counts and run/trial terminal states.
@@ -621,16 +638,85 @@ Add pytest cases for:
 - **Backstops:** the mid-run spend cap and call cap abort the run.
 - **`RunConfig` caps:** `timeout_s > MAX_TIMEOUT_S` or `max_retries > MAX_RETRIES_CAP` ⇒ `422 validation_error`.
 - **Mock mode:** mock mode never touches the ledger or the network; `MOCK_MODELS` unset ⇒ mock.
+- **Persistence (G11):** a finished run reloads after restart with identical snapshot, stats and SSE replay; a run that was active at shutdown reloads as `failed` and is never re-executed.
+- **Duplicate guard (G12):** an identical live config is refused with `409`; `ALLOW_LIVE_RERUN=true` allows it; mock runs are never refused; a second concurrent live run is refused.
+- **Export (G13):** the export script produces the expected files from fixture runs and a fixture ledger.
 
 #### G9. Contract and frontend follow-ups (not Codex's directory)
 
 - **`contract:` commit** (approved by the human on 2026-10-24): in `/contract/openapi.yaml`, set `version: 1.1.0`, the `RunConfig` defaults `timeout_s: 15` and `max_retries: 1`, and document the `409` on `POST /runs`. In `/contract/fixtures/health.json`, set `contract_version` to `1.1.0`. Shape-only fixtures stay unchanged.
 - **`docs/HANDOFF.md` entry for Claude Code:** update `RUN_DEFAULTS` in `frontend/src/api/types.ts` to `timeout_s: 15`, `max_retries: 1`. Optionally show the `409` details (estimated cost vs remaining budget) in the run-controls error notice. The frontend currently sends explicit values, so the backend default change alone does not reach the UI.
+- **Second `docs/HANDOFF.md` entry for Claude Code (needed for 6.2):**
+  - Show the `409` duplicate-run details (`duplicate_of_run_id`) with an "Open that run" action.
+  - Provide a way to open any finished run from `GET /runs` and show its boards, move histories, results, dashboard and `/slide` view, so demo retakes never need a new live run.
+  - Run controls must accept a fixed `seed` and `count` so the 6.2 runs can be entered exactly.
 
 #### G10. Reporting note (for the written analysis)
 
-With `CHAT_MAX_TOKENS=16` and reasoning off, Opus answers in a single shot without extended planning. The written analysis must say so, because it bears on question 5 ("fast decision model vs. frontier LLM"). An optional, separately budgeted extension run may set `CHAT_REASONING_EFFORT=low` and a larger `CHAT_MAX_TOKENS`, but only with human approval and a raised `MAX_SPEND_USD`. Its results must be labelled as a separate configuration.
+Opus 5.5 runs with always-on adaptive thinking at the **lowest effort (`low`)**, an immediate-answer instruction, and a hard cap of `CHAT_MAX_TOKENS` total output tokens per move. It therefore does some short planning, but far less than its default (`medium`).
 
+The written analysis must:
+- state this configuration;
+- report the measured average Opus `completion_tokens` and `reasoning_tokens` per move, and the number of truncated (`finish_reason: "length"`) responses;
+- discuss how the cap may limit Opus's quality, because it bears on question 5 ("fast decision model vs. frontier LLM").
+
+An optional, separately budgeted extension run may use a higher effort and a larger `CHAT_MAX_TOKENS`, but only with human approval and a raised `MAX_SPEND_USD`. Its results must be labelled as a separate configuration.
+
+#### G11. Persist everything so nothing is paid for twice
+
+- Write each puzzle, each run snapshot and each run's full event log to `RUNS_DIR` as JSON. Flush every terminal trial and run event (write to a temp file, then rename).
+- On startup, load them read-only, so `GET /puzzles`, `GET /runs`, `GET /runs/{id}`, `/stats` and SSE replay keep working after a restart.
+- A run that was `queued`/`running` at shutdown reloads as `failed`, with its unfinished trials marked `error` (`internal_error`, "interrupted by restart"). It is **never** resumed or re-executed automatically, because automatic resumption risks double spend.
+- No key, headers or prompts are written to these files (they already exclude them by construction; keep it that way).
+
+#### G12. One live run at a time, no accidental re-runs
+
+In real mode, `POST /runs` additionally returns `409 conflict` when:
+- another live run is `queued`/`running` (`details: { "active_run_id": "..." }`); or
+- `ALLOW_LIVE_RERUN=false` and a completed live run already exists with the same models, `max_moves`, `timeout_s`, `max_retries`, `history_window` and the same set of puzzle **facelets** (compare by content, not puzzle ID) (`details: { "duplicate_of_run_id": "..." }`).
+
+Mock runs are never refused by this rule. These are new `details` payloads on the existing `409 conflict` code, so this is not a contract shape change.
+
+#### G13. Results export (zero cost)
+
+`backend/scripts/export_results.py` reads `RUNS_DIR` and the spend ledger and writes `results/benchmark_summary.md` plus one CSV per run. It includes:
+- per-model stats as in 5.8;
+- Opus average `completion_tokens` and `reasoning_tokens` per move, and the truncation count;
+- spend per run, per model and in total, from the ledger.
+
+The human commits `results/` for the submission. It contains no key or prompts.
+
+
+### 6.2 Full benchmark execution plan (human runs it; one live pass)
+
+Every live step below is run **once**. Seeds are fixed so the puzzles are reproducible and documented. All runs use: all four models, `max_moves 30`, `timeout_s 15`, `max_retries 1`, `history_window 6`, `concurrency 1`.
+
+| Step | Mode | What | Opus calls (expected / worst) | Expected cost |
+|---|---|---|---|---|
+| 0 | mock | Run steps 3–6 end to end in mock mode, open the dashboard and `/slide`, and do a full dry-run of the screen recording. Fix everything here. | 0 | $0 |
+| 1 | live | `live_smoke.py`: 1 call per model | 1 / 1 | < $0.01 |
+| 2 | live | `live_smoke.py --calibrate` (3 Opus calls); then set `CHAT_MAX_TOKENS` in `.env` and restart | 3 / 3 | < $0.04 |
+| 3 | live | Rehearsal: `warmup`, `count 1`, `seed 100`, `max_moves 5` | ≤ 5 / 10 | < $0.04 |
+| 4 | live | Warm-up run: `warmup`, `count 2`, `seed 101` | ~25 / 120 | ~$0.08 |
+| 5 | live | **Primary run: `primary`, `count 10`, `seed 202`. One run, so the dashboard and slide cover all 10 puzzles. Screen-record this run** (in-progress + completion stages). | ~190 / 600 | ~$0.62 |
+| 6 | live | Extension run: `extension`, `count 3`, `seed 303` | ~95 / 180 | ~$0.30 |
+| 7 | offline | `export_results.py`; record the final slide from the persisted primary run | 0 | $0 |
+
+**Gates between live steps.** After each live step, read the run-finished log line (G5) or the ledger and stop to reconsider before going on if any of these hold:
+- the step cost more than 1.5× its expected cost;
+- Opus truncations exceed 20% of its calls;
+- any run aborted (401/402/cap).
+
+Never "just rerun" a live step. A rerun needs a deliberate decision, `ALLOW_LIVE_RERUN=true`, and a note in the written analysis.
+
+**Recording.** Rehearse the recording in step 0. Record step 5 live, with step 4 as a backup in-progress clip. Retakes of the completion stage or slide use the persisted run (G11), never a new live run.
+
+**Total (with ~5.5% credit purchase fee):**
+- **expected ≈ $1.10**;
+- optimistic ≈ $0.40 (Opus solves most primary puzzles in ~8 moves, ~40 output tokens per move);
+- pessimistic ≈ $3.60 (Opus fails everything and hits the token cap every move).
+
+The decision models total ≈ $0.06 in every case. Five extension puzzles instead of three would add ~$0.20 expected.
 ---
 
 ## 7. Contract change protocol
@@ -707,9 +793,9 @@ frontend/
 | M1 | Backend core | Codex | Engine, scramble, BFS, mock adapter, `/health`, `/models`, `/puzzles`, tests green |
 | M2 | Frontend on mocks | Claude Code | Full UI works from fixtures: board, lanes, history, banners, dashboard, slide, identity badge |
 | M3 | Backend real adapters + runs/SSE/stats | Codex | Real OpenRouter calls verified against current docs; run/SSE/stats endpoints match fixtures |
-| M3.5 | Cost guardrails | Codex | Section 6.1 implemented; G8 tests green; `live_smoke.py` passes with Opus `reasoning_tokens = 0` and `prompt_tokens ≤ 250`; measured prompt tokens recorded in backend README |
+| M3.5 | Cost guardrails | Codex | Section 6.1 (G1–G13) implemented, including persistence, the duplicate-run guard and the export script; G8 tests green; `live_smoke.py` and `--calibrate` pass; Opus `prompt_tokens ≤ 250`; calibrated `CHAT_MAX_TOKENS`, measured Opus tokens/cost per call, and the chosen G2 variant (effort `low` or `omit`) recorded in backend README |
 | M4 | Integration | Both (own side each) | Frontend with `VITE_USE_MOCKS=false` runs a warm-up end to end against the backend |
-| M5 | Experiments | Backend run + frontend display | ≥ 5 primary puzzles × 4 models (20 trials) completed; optional extension suite |
+| M5 | Experiments | Human, following 6.2 | Steps 0–7 of 6.2 done once: 2 warm-up, 10 primary (40 trials) and 3 extension puzzles × 4 models; `results/` exported; total spend from the ledger recorded |
 | M6 | Demo & submission | Human | Checklist in section 11 complete |
 
 M1 and M2 proceed in parallel after M0. Neither agent starts M4 until both M1/M2 (and M3 on the backend side) are done.
@@ -741,4 +827,4 @@ M1 and M2 proceed in parallel after M0. Neither agent starts M4 until both M1/M2
 
 **Both:** commit small and often with the scope prefix from section 8; if you cannot meet an acceptance criterion, say so plainly in `docs/HANDOFF.md` instead of working around it; never claim something works without having run it.
 
-**Stop-and-ask triggers:** any change that would raise per-call Opus output above `CHAT_MAX_TOKENS` or enable reasoning, any live run whose pre-check fails, contract ambiguity or conflict, a needed change in the other agent's directory, a model/endpoint that no longer matches the PDF, any step that would expose or commit a secret, or any instruction that seems to contradict this file.
+**Stop-and-ask triggers:** any change that would raise `CHAT_MAX_TOKENS` above 512 or Opus effort above `low`, any G2 stop-and-ask condition, any live run whose pre-check fails, contract ambiguity or conflict, a needed change in the other agent's directory, a model/endpoint that no longer matches the PDF, any step that would expose or commit a secret, or any instruction that seems to contradict this file.
