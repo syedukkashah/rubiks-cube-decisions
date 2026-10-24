@@ -1,9 +1,9 @@
-// Types for the JSON API contract v1.0.0 (AGENTS.md section 5).
+// Types for the JSON API contract v1.1.0 (AGENTS.md section 5).
 // Field names, nullability and enums mirror the contract exactly; nothing here is invented.
 // Every response passes through ./normalize.ts, which drops unknown fields and turns
 // missing nullable fields into explicit nulls.
 
-export const CONTRACT_VERSION = '1.0.0';
+export const CONTRACT_VERSION = '1.1.0';
 
 /** HTM face-turn metric, AGENTS.md 4.1. Display-only here: the backend validates moves. */
 export type Move = string;
@@ -31,6 +31,12 @@ export interface ErrorBody {
 
 export interface ErrorEnvelope {
   error: ErrorBody;
+}
+
+/** `details` of the 409 conflict POST /runs returns when the spend pre-check fails (5.6, 6.1 G5). */
+export interface SpendCapDetails {
+  estimated_max_cost_usd: number;
+  remaining_budget_usd: number;
 }
 
 // ---------- 5.3 health ----------
@@ -107,13 +113,25 @@ export interface CreateRunRequest {
   concurrency?: number;
 }
 
-/** Contract defaults for POST /runs (AGENTS.md 5.6 table). */
+/** Contract defaults for POST /runs (AGENTS.md 5.6 table, v1.1.0 cost guardrails). */
 export const RUN_DEFAULTS = {
   max_moves: 30,
-  timeout_s: 60,
-  max_retries: 2,
+  timeout_s: 15,
+  max_retries: 1,
   history_window: 6,
   concurrency: 1,
+} as const;
+
+/**
+ * Bounds the backend accepts for POST /runs; anything outside is a 422 (5.6).
+ * timeout_s and max_retries are capped by the backend's MAX_TIMEOUT_S / MAX_RETRIES_CAP
+ * (6.1 G1 defaults) to limit API cost. Used for input limits only; the backend validates.
+ */
+export const RUN_LIMITS = {
+  max_moves: { min: 1, max: 30 },
+  timeout_s: { min: 1, max: 20 },
+  max_retries: { min: 0, max: 1 },
+  concurrency: { min: 1, max: 4 },
 } as const;
 
 export interface CreateRunResponse {

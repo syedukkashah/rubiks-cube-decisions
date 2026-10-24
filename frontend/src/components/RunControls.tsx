@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useApi } from '../api/ApiContext';
-import { RUN_DEFAULTS, type ModelInfo, type Suite } from '../api/types';
+import { RUN_DEFAULTS, RUN_LIMITS, type ModelInfo, type Suite } from '../api/types';
 import { modelColor } from '../lib/modelColors';
 import { useAsync } from '../state/useAsync';
 
@@ -24,6 +24,13 @@ const SUITES: Record<Suite, { label: string; min: number; max: number }> = {
 };
 
 const toInt = (s: string): number | null => (s.trim() === '' ? null : Number.parseInt(s, 10));
+
+/** True when the field holds a number inside the backend's accepted range (RUN_LIMITS). */
+function inRange(s: string, limit: { min: number; max: number }, integer: boolean): boolean {
+  if (s.trim() === '') return false;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= limit.min && n <= limit.max && (!integer || Number.isInteger(n));
+}
 
 export interface RunControlsProps {
   models: ModelInfo[] | null;
@@ -51,6 +58,7 @@ export function RunControls({ models, busy, active, phaseLabel, onStart, onCance
   const [maxRetries, setMaxRetries] = useState(String(RUN_DEFAULTS.max_retries));
   const [historyWindow, setHistoryWindow] = useState(String(RUN_DEFAULTS.history_window));
   const [concurrency, setConcurrency] = useState(String(RUN_DEFAULTS.concurrency));
+  const [fairnessOpen, setFairnessOpen] = useState(false);
 
   const stored = useAsync(source === 'stored' ? () => api.listPuzzles(suite) : null, [api, source, suite]);
   const storedIds = selectedStored ?? (stored.data ?? []).map((p) => p.puzzle_id);
@@ -60,7 +68,15 @@ export function RunControls({ models, busy, active, phaseLabel, onStart, onCance
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
   const puzzlesReady = source === 'generate' ? toInt(count) !== null : storedIds.length > 0;
-  const canStart = !busy && !active && modelIds.length > 0 && puzzlesReady;
+  // Out-of-range values would only earn a 422, so they block the start button instead.
+  const { max_moves: mm, timeout_s: to, max_retries: mr, concurrency: cc } = RUN_LIMITS;
+  const limitErrors = [
+    !inRange(maxMoves, mm, true) && `Max moves must be ${mm.min}–${mm.max}.`,
+    !inRange(timeoutS, to, false) && `Timeout must be ${to.min}–${to.max} s.`,
+    !inRange(maxRetries, mr, true) && `Max retries must be ${mr.min}–${mr.max}.`,
+    !inRange(concurrency, cc, true) && `Concurrency must be ${cc.min}–${cc.max}.`,
+  ].filter((e): e is string => typeof e === 'string');
+  const canStart = !busy && !active && modelIds.length > 0 && puzzlesReady && limitErrors.length === 0;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -73,7 +89,7 @@ export function RunControls({ models, busy, active, phaseLabel, onStart, onCance
       // keep GET /models order so lanes and colors stay stable
       model_ids: availableIds.filter((id) => modelIds.includes(id)),
       max_moves: toInt(maxMoves) ?? RUN_DEFAULTS.max_moves,
-      timeout_s: Number(timeoutS) || RUN_DEFAULTS.timeout_s,
+      timeout_s: Number(timeoutS),
       max_retries: toInt(maxRetries) ?? RUN_DEFAULTS.max_retries,
       history_window: toInt(historyWindow) ?? RUN_DEFAULTS.history_window,
       concurrency: toInt(concurrency) ?? RUN_DEFAULTS.concurrency,
@@ -177,29 +193,77 @@ export function RunControls({ models, busy, active, phaseLabel, onStart, onCance
           </div>
         </fieldset>
 
-        <details className="field-group advanced">
-          <summary>Fairness settings</summary>
+        <details
+          className="field-group advanced"
+          open={fairnessOpen || limitErrors.length > 0}
+          onToggle={(e) => setFairnessOpen(e.currentTarget.open)}
+        >
+          <summary>
+            Fairness settings
+            <span className="advanced__summary">
+              {timeoutS || '?'} s timeout · {maxRetries || '?'} {maxRetries === '1' ? 'retry' : 'retries'}
+            </span>
+          </summary>
           <p className="muted small">Applied identically to every model.</p>
-          <label className="field field--narrow">
-            <span>Max moves</span>
-            <input type="number" min={1} max={30} value={maxMoves} onChange={(e) => setMaxMoves(e.target.value)} />
-          </label>
-          <label className="field field--narrow">
-            <span>Timeout (s)</span>
-            <input type="number" min={1} step="any" value={timeoutS} onChange={(e) => setTimeoutS(e.target.value)} />
-          </label>
-          <label className="field field--narrow">
-            <span>Max retries</span>
-            <input type="number" min={0} value={maxRetries} onChange={(e) => setMaxRetries(e.target.value)} />
-          </label>
-          <label className="field field--narrow">
-            <span>History window</span>
-            <input type="number" min={0} value={historyWindow} onChange={(e) => setHistoryWindow(e.target.value)} />
-          </label>
-          <label className="field field--narrow">
-            <span>Concurrency</span>
-            <input type="number" min={1} max={4} value={concurrency} onChange={(e) => setConcurrency(e.target.value)} />
-          </label>
+          <div className="advanced__fields">
+            <label className="field field--narrow">
+              <span>Max moves</span>
+              <input
+                type="number"
+                min={mm.min}
+                max={mm.max}
+                step={1}
+                value={maxMoves}
+                onChange={(e) => setMaxMoves(e.target.value)}
+              />
+            </label>
+            <label className="field field--narrow">
+              <span>
+                Timeout (s, {to.min}–{to.max})
+              </span>
+              <input
+                type="number"
+                min={to.min}
+                max={to.max}
+                step="any"
+                value={timeoutS}
+                onChange={(e) => setTimeoutS(e.target.value)}
+                aria-describedby="cost-cap-hint"
+              />
+            </label>
+            <label className="field field--narrow">
+              <span>
+                Max retries ({mr.min}–{mr.max})
+              </span>
+              <input
+                type="number"
+                min={mr.min}
+                max={mr.max}
+                step={1}
+                value={maxRetries}
+                onChange={(e) => setMaxRetries(e.target.value)}
+                aria-describedby="cost-cap-hint"
+              />
+            </label>
+            <label className="field field--narrow">
+              <span>History window</span>
+              <input type="number" min={0} value={historyWindow} onChange={(e) => setHistoryWindow(e.target.value)} />
+            </label>
+            <label className="field field--narrow">
+              <span>Concurrency</span>
+              <input
+                type="number"
+                min={cc.min}
+                max={cc.max}
+                step={1}
+                value={concurrency}
+                onChange={(e) => setConcurrency(e.target.value)}
+              />
+            </label>
+          </div>
+          <p id="cost-cap-hint" className="advanced__hint small">
+            Timeout and retries are capped by the backend to limit OpenRouter API cost; every retry is a billed call.
+          </p>
         </details>
 
         <div className="controls__actions">
@@ -210,6 +274,11 @@ export function RunControls({ models, busy, active, phaseLabel, onStart, onCance
             <button type="button" className="btn btn--danger" onClick={onCancel} disabled={cancelling}>
               {cancelling ? 'Cancelling…' : 'Cancel run'}
             </button>
+          )}
+          {limitErrors.length > 0 && (
+            <p className="controls__invalid small" role="alert">
+              {limitErrors.join(' ')}
+            </p>
           )}
         </div>
       </div>

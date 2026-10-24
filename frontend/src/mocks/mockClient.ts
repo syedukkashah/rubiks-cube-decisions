@@ -13,12 +13,27 @@ import {
   normalizeRunSnapshot,
   normalizeRunStats,
 } from '../api/normalize';
-import type { CreatePuzzlesRequest, CreateRunRequest, RunEvent, RunStatus, RunSummary, Suite } from '../api/types';
+import {
+  type CreatePuzzlesRequest,
+  type CreateRunRequest,
+  type RunEvent,
+  type RunStatus,
+  type RunSummary,
+  type Suite,
+} from '../api/types';
 import { fixtures, RECORDED_RUN_ID } from './fixtures';
 
+/**
+ * - `default`: replay the recording.
+ * - `missing_api_key`: no OPENROUTER_API_KEY on the backend; POST /runs is a 503.
+ * - `spend_cap`: POST /runs fails the spend pre-check with a 409 (5.6, 6.1 G5).
+ * - `run_abort`: the replay is aborted mid-run by the live spend cap (6.1 G4):
+ *   a run-level `error` event, then `run_finished` with status `failed`.
+ */
+export type MockScenario = 'default' | 'missing_api_key' | 'spend_cap' | 'run_abort';
+
 export interface MockOptions {
-  /** 'default' | 'missing_api_key' */
-  scenario?: string;
+  scenario?: MockScenario | string;
   /** Multiplier on playback delays; 0 replays everything at once (tests). */
   speed?: number;
   /** Simulated network latency for request/response calls, in ms. */
@@ -27,9 +42,27 @@ export interface MockOptions {
   persist?: boolean;
 }
 
-const STORAGE_KEY = 'rubiks-cube-race:mock-runs';
+/** How a run stops early: synthesized events that follow recorded seq `afterSeq`. */
+interface MockEnding {
+  afterSeq: number;
+  status: 'cancelled' | 'failed';
+  /** Raw event envelopes with seq afterSeq + 1, afterSeq + 2, … */
+  events: unknown[];
+}
 
-type StoredRun = Pick<MockRun, 'id' | 'createdAt' | 'startedAtMs' | 'cancelSeq' | 'cancelEvent'>;
+interface MockRun {
+  id: string;
+  createdAt: string;
+  startedAtMs: number;
+  /** Playback offset (ms after start) of each recorded event, index = seq - 1. */
+  offsets: number[];
+  ending: MockEnding | null;
+  listeners: Set<() => void>;
+}
+
+const STORAGE_KEY = 'rubiks-cube-race:mock-runs:v2';
+
+type StoredRun = Pick<MockRun, 'id' | 'createdAt' | 'startedAtMs' | 'ending'>;
 
 function loadStored(): StoredRun[] {
   try {
@@ -43,33 +76,20 @@ function loadStored(): StoredRun[] {
 
 function saveStored(runs: Iterable<MockRun>) {
   try {
-    const slim: StoredRun[] = [...runs].map(({ id, createdAt, startedAtMs, cancelSeq, cancelEvent }) => ({
-      id,
-      createdAt,
-      startedAtMs,
-      cancelSeq,
-      cancelEvent,
-    }));
+    const slim: StoredRun[] = [...runs].map(({ id, createdAt, startedAtMs, ending }) => ({ id, createdAt, startedAtMs, ending }));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(slim.slice(-20)));
   } catch {
     // storage unavailable (private mode, blocked): runs simply do not survive a reload
   }
 }
 
-interface MockRun {
-  id: string;
-  createdAt: string;
-  startedAtMs: number;
-  /** Playback offset (ms after start) of each recorded event, index = seq - 1. */
-  offsets: number[];
-  /** Set when cancelled: seq of the synthesized run_finished(cancelled) event. */
-  cancelSeq: number | null;
-  cancelEvent: unknown | null;
-  listeners: Set<() => void>;
-}
-
 /** Compresses recorded gaps so a run plays in ~30 s while keeping fast vs slow models visible. */
 const playbackDelay = (gapMs: number) => (gapMs <= 0 ? 0 : Math.min(1500, 60 + gapMs * 0.15));
+
+/** Share of the recording that plays before the `run_abort` scenario stops it. */
+const ABORT_AT = 0.4;
+
+const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 const withRunId = <T>(value: T, runId: string): T =>
   JSON.parse(JSON.stringify(value).split(`"${RECORDED_RUN_ID}"`).join(JSON.stringify(runId))) as T;
@@ -91,7 +111,7 @@ export function createMockClient(options: MockOptions = {}): ApiClient {
 
   if (persist) {
     for (const s of loadStored()) {
-      runs.set(s.id, { ...s, offsets: buildOffsets(), listeners: new Set() });
+      runs.set(s.id, { ...s, ending: s.ending ?? null, offsets: buildOffsets(), listeners: new Set() });
       const n = Number.parseInt(s.id.replace(/\D+/g, ''), 10);
       if (Number.isFinite(n)) runCounter = Math.max(runCounter, n);
     }
@@ -114,39 +134,92 @@ export function createMockClient(options: MockOptions = {}): ApiClient {
   const fail = (status: number, code: string, message: string, details: Record<string, unknown> | null = null) =>
     new ApiError(status, { code, message, details });
 
+  const fixtureError = (status: number, raw: unknown) => {
+    const body = normalizeErrorBody(raw);
+    return new ApiError(status, body ?? { code: 'internal_error', message: 'bad mock fixture', details: null });
+  };
+
   const getRunOrThrow = (id: string): MockRun => {
     const run = runs.get(id);
     if (!run) throw fail(404, 'not_found', `Unknown run ${id}`, { run_id: id });
     return run;
   };
 
-  /** Highest recorded seq that has "happened" by now. */
-  const playedSeq = (run: MockRun): number => {
+  /** Recorded events whose playback time has passed, ignoring any ending. */
+  const rawPlayed = (run: MockRun): number => {
     const elapsed = Date.now() - run.startedAtMs;
     let seq = 0;
     while (seq < totalSeq && (run.offsets[seq] ?? Infinity) <= elapsed) seq++;
-    return run.cancelSeq !== null ? Math.min(seq, run.cancelSeq - 1) : seq;
+    return seq;
   };
 
-  const lastSeqOf = (run: MockRun) => (run.cancelSeq !== null ? run.cancelSeq : playedSeq(run));
+  /** Highest recorded seq that has "happened" by now. */
+  const playedSeq = (run: MockRun): number =>
+    run.ending ? Math.min(rawPlayed(run), run.ending.afterSeq) : rawPlayed(run);
+
+  const hasEnded = (run: MockRun): boolean => run.ending !== null && rawPlayed(run) >= run.ending.afterSeq;
+
+  const lastSeqOf = (run: MockRun): number =>
+    run.ending && hasEnded(run) ? run.ending.afterSeq + run.ending.events.length : playedSeq(run);
 
   const statusOf = (run: MockRun): RunStatus => {
-    if (run.cancelSeq !== null) return 'cancelled';
-    const seq = playedSeq(run);
+    if (run.ending && hasEnded(run)) return run.ending.status;
+    const seq = rawPlayed(run);
     if (seq >= totalSeq) return 'completed';
     return seq === 0 ? 'queued' : 'running';
   };
 
   /** Event with the given seq (1-based) as the backend would emit it for this run. */
   const eventAt = (run: MockRun, seq: number): RunEvent | null => {
-    if (run.cancelSeq !== null && seq === run.cancelSeq) return normalizeEvent(run.cancelEvent);
+    if (run.ending && seq > run.ending.afterSeq) {
+      return normalizeEvent(run.ending.events[seq - run.ending.afterSeq - 1]);
+    }
     const raw = recorded[seq - 1];
     return raw === undefined ? null : normalizeEvent(withRunId(raw, run.id));
   };
 
+  const recordedTs = (seq: number): string => {
+    const raw = recorded[seq - 1] as { ts?: unknown } | undefined;
+    return typeof raw?.ts === 'string' ? raw.ts : nowIso();
+  };
+
+  const envelope = (runId: string, seq: number, type: string, ts: string, data: object) => ({
+    seq,
+    type,
+    run_id: runId,
+    trial_id: null,
+    ts,
+    data,
+  });
+
+  const cancelEnding = (runId: string, afterSeq: number): MockEnding => {
+    const ts = nowIso();
+    return {
+      afterSeq,
+      status: 'cancelled',
+      events: [envelope(runId, afterSeq + 1, 'run_finished', ts, { status: 'cancelled', finished_at: ts })],
+    };
+  };
+
+  /**
+   * Live spend cap hit mid-run (6.1 G4). The backend would also mark the remaining trials
+   * `error`; this replay does not synthesize trial records, so they stay as last reported.
+   */
+  const abortEnding = (runId: string, afterSeq: number): MockEnding => {
+    const ts = recordedTs(afterSeq);
+    return {
+      afterSeq,
+      status: 'failed',
+      events: [
+        envelope(runId, afterSeq + 1, 'error', ts, { code: 'conflict', message: 'Live spend cap reached' }),
+        envelope(runId, afterSeq + 2, 'run_finished', ts, { status: 'failed', finished_at: ts }),
+      ],
+    };
+  };
+
   const summary = (run: MockRun): RunSummary => {
     const status = statusOf(run);
-    const finished = status === 'completed' || status === 'cancelled';
+    const finished = status === 'completed' || status === 'cancelled' || status === 'failed';
     const lastEvent = finished ? eventAt(run, lastSeqOf(run)) : null;
     return {
       run_id: run.id,
@@ -188,25 +261,22 @@ export function createMockClient(options: MockOptions = {}): ApiClient {
 
     createRun: (req: CreateRunRequest) =>
       respond(() => {
-        if (scenario === 'missing_api_key') {
-          const body = normalizeErrorBody(fixtures.errorMissingApiKey);
-          throw new ApiError(503, body ?? { code: 'missing_api_key', message: 'missing key', details: null });
-        }
+        if (scenario === 'missing_api_key') throw fixtureError(503, fixtures.errorMissingApiKey);
         if (!req.puzzle_ids.length) {
           throw fail(422, 'validation_error', 'puzzle_ids must contain at least one puzzle', { field: 'puzzle_ids' });
         }
         const unknown = (req.model_ids ?? []).find((id) => !models.some((m) => m.id === id));
         if (unknown) throw fail(422, 'validation_error', `Unknown model ${unknown}`, { field: 'model_ids' });
+        if (scenario === 'spend_cap') throw fixtureError(409, fixtures.errorSpendCap);
         runCounter += 1;
         const id = `run_mock_${String(runCounter).padStart(2, '0')}`;
         runs.set(id, {
           id,
-          createdAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+          createdAt: nowIso(),
           // the recording's run_started has offset 0; leave a beat before it plays
           startedAtMs: Date.now() + 400 * speed,
           offsets: buildOffsets(),
-          cancelSeq: null,
-          cancelEvent: null,
+          ending: scenario === 'run_abort' ? abortEnding(id, Math.floor(totalSeq * ABORT_AT)) : null,
           listeners: new Set(),
         });
         save();
@@ -232,20 +302,10 @@ export function createMockClient(options: MockOptions = {}): ApiClient {
       respond(() => {
         const run = getRunOrThrow(id);
         const status = statusOf(run);
-        if (status === 'completed' || status === 'cancelled') {
+        if (status === 'completed' || status === 'cancelled' || status === 'failed') {
           throw fail(409, 'conflict', `Run ${id} is already ${status}`, { status });
         }
-        const seq = playedSeq(run) + 1;
-        run.cancelSeq = seq;
-        const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-        run.cancelEvent = {
-          seq,
-          type: 'run_finished',
-          run_id: id,
-          trial_id: null,
-          ts,
-          data: { status: 'cancelled', finished_at: ts },
-        };
+        run.ending = cancelEnding(id, playedSeq(run));
         save();
         run.listeners.forEach((notify) => notify());
         return { run_id: id, status: 'cancelled' as const };
@@ -284,9 +344,11 @@ export function createMockClient(options: MockOptions = {}): ApiClient {
           if (event) handlers.onEvent(event);
         }
         if (closed) return;
-        const end = run.cancelSeq ?? totalSeq;
+        const end = run.ending ? run.ending.afterSeq + run.ending.events.length : totalSeq;
         if (delivered >= end) return; // stream "closes" after run_finished
-        const nextAt = run.startedAtMs + (run.offsets[delivered] ?? 0);
+        // Wake for the next recorded event; an ending plays once its last recorded event has.
+        const nextIndex = run.ending ? Math.min(delivered, run.ending.afterSeq - 1) : delivered;
+        const nextAt = run.startedAtMs + (run.offsets[nextIndex] ?? 0);
         timer = setTimeout(pump, Math.max(0, nextAt - Date.now()));
       };
 

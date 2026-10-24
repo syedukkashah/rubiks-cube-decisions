@@ -122,18 +122,10 @@ export function BenchmarkPage() {
           finishedAt={state.finishedAt}
           runs={runs.data}
           onSelectRun={(id) => setParams({ run: id })}
+          runError={state.runError}
         />
       )}
       {loadError ? <ErrorNotice error={loadError} onRetry={reload} /> : null}
-      {state.runError && (
-        <div className="notice notice--error" role="alert">
-          <span className="notice__icon" aria-hidden="true">!</span>
-          <div className="notice__body">
-            <strong>Run failed: {state.runError.code}</strong>
-            <span className="notice__message">{state.runError.message}</span>
-          </div>
-        </div>
-      )}
 
       {!runId ? (
         <section className="card empty-state">

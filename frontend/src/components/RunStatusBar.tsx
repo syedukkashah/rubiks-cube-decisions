@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { RunStatus, RunSummary } from '../api/types';
+import type { RunErrorData, RunStatus, RunSummary } from '../api/types';
 import { formatTime } from '../lib/format';
 import type { RunProgress } from '../state/selectors';
 import type { StreamStatus } from '../state/useRunSession';
@@ -31,10 +31,23 @@ export interface RunStatusBarProps {
   finishedAt: string | null;
   runs: RunSummary[] | null;
   onSelectRun: (runId: string) => void;
+  /** Run-level `error` event (5.7), e.g. a spend/call cap or out-of-credits abort (6.1 G4). */
+  runError?: RunErrorData | null;
 }
 
-export function RunStatusBar({ runId, status, stream, progress, startedAt, finishedAt, runs, onSelectRun }: RunStatusBarProps) {
+export function RunStatusBar({
+  runId,
+  status,
+  stream,
+  progress,
+  startedAt,
+  finishedAt,
+  runs,
+  onSelectRun,
+  runError = null,
+}: RunStatusBarProps) {
   const pct = progress.total ? (progress.finished / progress.total) * 100 : 0;
+  const aborted = status === 'failed' || runError !== null;
   return (
     <div className="statusbar card" role="region" aria-label="Run status">
       <div className="statusbar__item">
@@ -87,6 +100,25 @@ export function RunStatusBar({ runId, status, stream, progress, startedAt, finis
         <Link className="btn btn--ghost statusbar__slide" to={`/slide?run=${encodeURIComponent(runId)}`}>
           Final slide →
         </Link>
+      )}
+      {aborted && (
+        <div className="statusbar__abort" role="alert" data-testid="run-abort">
+          <span className="notice__icon" aria-hidden="true">
+            !
+          </span>
+          <strong>{status === 'failed' ? 'Run aborted by the backend' : 'Run error'}</strong>
+          {runError ? (
+            <>
+              <span className="statusbar__abort-message">{runError.message || 'No message given.'}</span>
+              <code className="statusbar__abort-code">{runError.code}</code>
+            </>
+          ) : (
+            <span className="statusbar__abort-message muted">
+              No reason available: the backend sends it only as a live event, not in the run snapshot. Trial errors are
+              shown below.
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

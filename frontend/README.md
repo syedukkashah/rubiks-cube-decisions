@@ -1,7 +1,7 @@
 # Rubik's Cube Race — frontend
 
 React 18 + Vite + TypeScript (strict) UI for the benchmark described in `../AGENTS.md`.
-It talks only to the backend's `/api/v1` (contract v1.0.0, AGENTS.md section 5). It never calls
+It talks only to the backend's `/api/v1` (contract v1.1.0, AGENTS.md section 5). It never calls
 OpenRouter, never holds an API key, and never computes moves, solved state or statistics. It
 renders what the backend reports.
 
@@ -17,7 +17,7 @@ cp .env.example .env      # then fill in VITE_STUDENT_NAME and VITE_STUDENT_ROLL
 |---|---|---|
 | `VITE_API_BASE_URL` | `/api/v1` | API base path. The dev server proxies `/api` to `BACKEND_URL`. |
 | `VITE_USE_MOCKS` | `false` | `true` replays the recorded fixture run in `/contract/fixtures`. No backend needed. |
-| `VITE_MOCK_SCENARIO` | `default` | Mock only. `missing_api_key` simulates a backend without `OPENROUTER_API_KEY`. |
+| `VITE_MOCK_SCENARIO` | `default` | Mock only. `missing_api_key`: backend has no `OPENROUTER_API_KEY` (503). `spend_cap`: `POST /runs` fails the spend pre-check (409 with cost details). `run_abort`: the replay is aborted mid-run with "Live spend cap reached" and the run ends `failed`. |
 | `VITE_STUDENT_NAME` / `VITE_STUDENT_ROLL` | (empty) | Identity badge shown on every screen. If either is empty, the badge shows a red warning instead. |
 | `BACKEND_URL` | `http://localhost:8000` | Dev-server proxy target. It is not exposed to the browser. |
 
@@ -47,6 +47,19 @@ Switching between mock data and the live backend changes only `VITE_USE_MOCKS`. 
   - Statistics dashboard from `GET /runs/{id}/stats`.
 - **`/slide?run=<run_id>`**: a full-screen benchmark slide for the end of the recording. Without
   `?run`, it uses the newest completed run.
+
+## Cost guardrails (contract v1.1.0)
+
+- Run defaults are `timeout_s: 15` and `max_retries: 1` (`RUN_DEFAULTS` in `src/api/types.ts`).
+- The run controls limit timeout to 1–20 s and retries to 0–1, the backend's `MAX_TIMEOUT_S` and
+  `MAX_RETRIES_CAP` defaults (AGENTS.md 6.1 G1). Out-of-range values block the start button
+  instead of earning a 422.
+- A `409 conflict` from `POST /runs` with `details.estimated_max_cost_usd` and
+  `details.remaining_budget_usd` shows "Run blocked by spend cap" with both amounts. Without those
+  details it falls back to the generic conflict notice. The frontend only displays these figures; it
+  never estimates cost.
+- A run-level `error` event followed by `run_finished` with status `failed` (e.g. "Live spend cap
+  reached", "insufficient credits") is shown in the run status bar.
 
 ## How live state works
 

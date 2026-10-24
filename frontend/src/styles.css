@@ -451,20 +451,45 @@ code {
 
 .advanced {
   display: block;
-  max-width: 560px;
+  max-width: 600px;
 }
 
 .advanced summary {
   cursor: pointer;
 }
 
-.advanced[open] {
+/* <details> ignores display:flex in Chromium, so its fields get their own flex row */
+.advanced__fields {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
 }
 
 .advanced p {
   width: 100%;
   margin: 0 0 4px;
+}
+
+.advanced__summary {
+  margin-left: 8px;
+  color: var(--text-2);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.advanced .advanced__hint {
+  margin: 4px 0 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--warning);
+  color: var(--text-2);
+}
+
+.controls__invalid {
+  flex-basis: 100%;
+  margin: 0;
+  color: #ffb4b4;
+  text-align: right;
 }
 
 .field {
@@ -550,6 +575,8 @@ code {
 
 .controls__actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
   align-items: center;
   margin-left: auto;
@@ -594,6 +621,31 @@ code {
 
 .statusbar__slide {
   margin-left: auto;
+}
+
+.statusbar__abort {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--critical);
+  border-radius: 8px;
+  background: rgba(208, 59, 59, 0.14);
+}
+
+.statusbar__abort-message {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.statusbar__abort-code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 0.78rem;
 }
 
 .progress {
