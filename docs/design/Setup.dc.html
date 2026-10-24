@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cube Race · Set up a run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E0F11}
+a{color:#C9CDD2}a:hover{color:#FFFFFF}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #8AB4FF;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0E0F11; color: #EDEEF0; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 14px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 14px 28px; border-bottom: 1px solid #24272B">
+  <div style="display: flex; align-items: center; gap: 10px">
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="0" y="0" width="10" height="10" rx="2" fill="#E0393E"></rect><rect x="12" y="0" width="10" height="10" rx="2" fill="#F2F3F5"></rect><rect x="0" y="12" width="10" height="10" rx="2" fill="#2D6BDF"></rect><rect x="12" y="12" width="10" height="10" rx="2" fill="#22A95B"></rect></svg>
+    <span style="font-weight: 700; font-size: 17px; letter-spacing: -0.01em">Cube Race</span>
+    <span style="color: #8A9198">Assignment 02</span>
+  </div>
+  <nav aria-label="Views" style="display: flex; gap: 4px; flex-wrap: wrap">
+    <a href="Setup.dc.html" aria-current="page" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 600; background: #1D2024; color: #FFFFFF">Setup</a>
+    <a href="Main.dc.html" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 500">Race</a>
+    <a href="Results.dc.html" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 500">Results</a>
+    <a href="Slide.dc.html" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 500">Slide</a>
+  </nav>
+  <div style="flex: 1 1 0"></div>
+  <span style="display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 99px; background: {{modeBg}}; color: {{modeFg}}; font-size: 12px; font-weight: 700">{{modeLabel}}</span>
+  <div style="display: flex; align-items: center; gap: 12px; background: #F4F5F6; color: #0E0F11; border-radius: 10px; padding: 7px 14px">
+    <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #4A4F55">STUDENT</span>
+    <span style="font-weight: 700; font-size: 15px">[Student Name]</span>
+    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 14px">[Roll No.]</span>
+  </div>
+</header>
+
+<main style="max-width: 1440px; margin: 0 auto; padding: 32px 28px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+  <div style="display: flex; flex-direction: column; gap: 8px; max-width: 760px">
+    <h1 style="margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.02em">Race four models on the same cube</h1>
+    <p style="margin: 0; font-size: 16px; line-height: 1.5; color: #A0A6AD">Three System-1 decision models against one frontier LLM. Each picks one move at a time until the cube is solved or 30 moves are used.</p>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+    <form style="flex: 999 1 640px; min-width: 0; background: #16181B; border: 1px solid #24272B; border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 28px">
+
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px">
+        <legend style="padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">1 · TEST SUITE</legend>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px">
+          <sc-for list="{{suites}}" as="su" hint-placeholder-count="3">
+            <button type="button" onClick="{{su.pick}}" aria-pressed="{{su.pressed}}" style="flex: 1 1 200px; text-align: left; cursor: pointer; font: inherit; color: #EDEEF0; padding: 16px 18px; border-radius: 14px; background: {{su.bg}}; border: 1.5px solid {{su.border}}; display: flex; flex-direction: column; gap: 6px; transition: border-color .2s ease, background .2s ease">
+              <span style="display: flex; justify-content: space-between; align-items: center; width: 100%"><span style="font-weight: 700; font-size: 16px">{{su.name}}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A6AD">{{su.range}}</span></span>
+              <span style="font-size: 13px; line-height: 1.4; color: #A0A6AD">{{su.desc}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </fieldset>
+
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 20px 32px">
+        <legend style="padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">2 · PUZZLES</legend>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span id="count-label" style="font-size: 13px; color: #C9CDD2">How many scrambles</span>
+          <div role="group" aria-labelledby="count-label" style="display: flex; align-items: center; background: #0E0F11; border: 1px solid #2A2E33; border-radius: 12px">
+            <button type="button" onClick="{{dec}}" aria-label="Fewer puzzles" style="width: 44px; height: 44px; border: 0; background: transparent; color: #EDEEF0; font: inherit; font-size: 20px; cursor: pointer">−</button>
+            <span style="min-width: 44px; text-align: center; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px">{{count}}</span>
+            <button type="button" onClick="{{inc}}" aria-label="More puzzles" style="width: 44px; height: 44px; border: 0; background: transparent; color: #EDEEF0; font: inherit; font-size: 20px; cursor: pointer">+</button>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <label for="seed" style="font-size: 13px; color: #C9CDD2">Seed (reproducible)</label>
+          <input id="seed" value="42" inputmode="numeric" style="width: 120px; height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1px solid #2A2E33; background: #0E0F11; color: #EDEEF0; font-family: 'JetBrains Mono', monospace; font-size: 16px">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <label for="len" style="font-size: 13px; color: #C9CDD2">Scramble length</label>
+          <input id="len" value="Random in range" style="width: 180px; height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1px solid #2A2E33; background: #0E0F11; color: #EDEEF0; font: inherit; font-size: 15px">
+        </div>
+      </fieldset>
+
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+        <legend style="padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">3 · MODELS</legend>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+          <sc-for list="{{models}}" as="m" hint-placeholder-count="4">
+            <button type="button" onClick="{{m.toggle}}" aria-pressed="{{m.pressed}}" style="display: flex; align-items: center; gap: 14px; text-align: left; cursor: pointer; font: inherit; color: #EDEEF0; padding: 14px 16px; border-radius: 14px; background: {{m.bg}}; border: 1.5px solid {{m.border}}; opacity: {{m.op}}; transition: opacity .2s ease, border-color .2s ease">
+              <span style="width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid {{m.boxBorder}}; background: {{m.boxBg}}; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0E0F11" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: {{m.checkOp}}"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+              </span>
+              <span style="width: 8px; height: 30px; border-radius: 3px; background: {{m.color}}; flex: 0 0 auto"></span>
+              <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                <span style="font-weight: 600; font-size: 15px">{{m.label}}</span>
+                <span style="font-size: 12px; color: #8A9198">{{m.sub}}</span>
+              </span>
+              <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #3DD68C"><span style="width: 7px; height: 7px; border-radius: 99px; background: #3DD68C"></span>Available</span>
+            </button>
+          </sc-for>
+        </div>
+      </fieldset>
+
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+        <legend style="padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">4 · FAIR-PLAY RULES · IDENTICAL FOR EVERY MODEL</legend>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: #1D2024; font-size: 13px"><span style="color: #8A9198">Max moves</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">30</span></span>
+          <span style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: #1D2024; font-size: 13px"><span style="color: #8A9198">Timeout / call</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">15 s</span></span>
+          <span style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: #1D2024; font-size: 13px"><span style="color: #8A9198">Retries / move</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">1</span></span>
+          <span style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: #1D2024; font-size: 13px"><span style="color: #8A9198">History window</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">6 moves</span></span>
+          <span style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: #1D2024; font-size: 13px"><span style="color: #8A9198">Concurrency</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">1</span></span>
+          <span style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; background: #1D2024; font-size: 13px"><span style="color: #8A9198">Move set</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">18 · HTM</span></span>
+        </div>
+        <span style="font-size: 12px; color: #8A9198">Concurrency stays at 1 so parallel calls don't skew latency numbers.</span>
+      </fieldset>
+
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding-top: 20px; border-top: 1px solid #24272B">
+        <div style="flex: 1 1 280px; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; background: {{checkBg}}">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{checkFg}}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto; margin-top: 1px"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"></path></svg>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span style="font-weight: 700; font-size: 14px; color: {{checkFg}}">{{checkTitle}}</span>
+            <span style="font-size: 12px; line-height: 1.45; color: #C9CDD2">{{checkDetail}}</span>
+          </div>
+        </div>
+        <button type="button" style="height: 52px; padding: 0 20px; border-radius: 14px; border: 1px solid #2A2E33; background: transparent; color: #EDEEF0; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">Generate puzzles only</button>
+        <a href="Main.dc.html" aria-disabled="{{runDisabled}}" style="display: inline-flex; align-items: center; gap: 10px; height: 52px; padding: 0 26px; border-radius: 14px; background: {{runBg}}; color: {{runFg}}; font-weight: 700; font-size: 16px; text-decoration: none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"></path></svg>
+          Run benchmark · {{trials}} trials
+        </a>
+      </div>
+    </form>
+
+    <aside style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+      <section style="background: #16181B; border: 1px solid #24272B; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 14px">
+        <h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">THIS RUN</h2>
+        <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
+          <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 44px; line-height: 1">{{trials}}</span>
+          <span style="font-size: 15px; color: #A0A6AD">trials = {{count}} puzzles × {{modelCount}} models</span>
+        </div>
+        <div style="height: 1px; background: #24272B"></div>
+        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+          <div style="display: flex; justify-content: space-between"><span style="color: #8A9198">Scramble</span><span style="font-family: 'JetBrains Mono', monospace">{{suiteRange}}</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #8A9198">Shortest solution</span><span>{{optLine}}</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #8A9198">Recommended minimum</span><span>5 primary × 4 = 20</span></div>
+        </div>
+        <sc-if value="{{belowMin}}" hint-placeholder-val="{{ false }}">
+          <span style="font-size: 12px; line-height: 1.45; color: #F5B13D">Below the recommended 20 primary trials. Fine for a check, thin as evidence.</span>
+        </sc-if>
+      </section>
+
+      <section style="background: #16181B; border: 1px solid #24272B; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">PREVIOUS RUNS</h2>
+        <a href="Results.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #1D2024; text-decoration: none; color: #EDEEF0">
+          <span style="width: 8px; height: 8px; border-radius: 99px; background: #3DD68C"></span>
+          <span style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 0"><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">run_01</span><span style="font-size: 12px; color: #8A9198">Completed · 3 primary × 4 models · 24 Oct 09:30</span></span>
+          <span style="font-size: 13px; color: #C9CDD2">Open</span>
+        </a>
+        <a href="Results.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #1D2024; text-decoration: none; color: #EDEEF0">
+          <span style="width: 8px; height: 8px; border-radius: 99px; background: #8A9198"></span>
+          <span style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 0"><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">run_00</span><span style="font-size: 12px; color: #8A9198">Cancelled · 1 warm-up × 4 models · 24 Oct 09:12</span></span>
+          <span style="font-size: 13px; color: #C9CDD2">Open</span>
+        </a>
+      </section>
+    </aside>
+  </div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["mock","live","blocked"],"default":"mock","section":"Preview state"},"$preview":{"width":1440,"height":1000}}'>
+var SUITES = [
+  { id: 'warmup', name: 'Warm-up', range: '3–4 turns', desc: 'Check adapters, move validation and the engine.', opt: 'Exact (BFS)' },
+  { id: 'primary', name: 'Primary', range: '4–5 turns', desc: 'Main comparison. Exact shortest distance is known.', opt: 'Exact (BFS)' },
+  { id: 'extension', name: 'Extension', range: '15–20 turns', desc: 'Harder states and failure rates. No optimum computed.', opt: 'Not computed' }
+];
+var MODELS = [
+  { id: 'jev', label: 'Jev 1.13', sub: 'System-1 · Decisions API', color: '#6EA8FE' },
+  { id: 'luna', label: 'GPT-6 Luna Decisions', sub: 'System-1 · Decisions API', color: '#C08CFF' },
+  { id: 'clef', label: 'Cloudflare Clef', sub: 'System-1 · Decisions API', color: '#3CCBDA' },
+  { id: 'opus', label: 'Claude Opus 5.5', sub: 'Frontier LLM · Chat completions', color: '#FF9466' }
+];
+var MODE = {
+  mock: { label: 'MOCK MODE', fg: '#8AB4FF', bg: 'rgba(138,180,255,0.12)', title: 'Mock mode · no OpenRouter calls', detail: 'Models are simulated by the backend. Nothing is spent.' },
+  live: { label: 'LIVE · OPENROUTER', fg: '#3DD68C', bg: 'rgba(61,214,140,0.12)', title: 'Spend pre-check passed', detail: 'The backend checks the worst-case cost against the remaining budget before it starts.' },
+  blocked: { label: 'LIVE · OPENROUTER', fg: '#FF6B7A', bg: 'rgba(255,107,122,0.12)', title: 'Blocked by spend pre-check (409)', detail: 'Worst case $1.67 is more than the $0.85 left. Use fewer puzzles or models.' }
+};
+
+class Component extends DCLogic {
+  renderVals() {
+    var self = this;
+    var s = this.state || {};
+    var suite = s.suite || 'primary';
+    var count = s.count || 5;
+    var off = s.off || {};
+    var mode = MODE[this.props.mode ?? 'mock'] || MODE.mock;
+    var su = SUITES.filter(function (x) { return x.id === suite; })[0];
+    var modelCount = MODELS.filter(function (m) { return !off[m.id]; }).length;
+    var trials = count * modelCount;
+    var blocked = (this.props.mode ?? 'mock') === 'blocked' || modelCount === 0;
+    return {
+      suites: SUITES.map(function (x) {
+        var on = x.id === suite;
+        return { name: x.name, range: x.range, desc: x.desc, pressed: on ? 'true' : 'false', bg: on ? 'rgba(138,180,255,0.08)' : '#0E0F11', border: on ? '#8AB4FF' : '#2A2E33', pick: function () { self.setState({ suite: x.id }); } };
+      }),
+      models: MODELS.map(function (m) {
+        var on = !off[m.id];
+        return {
+          label: m.label, sub: m.sub, color: m.color, pressed: on ? 'true' : 'false',
+          bg: on ? '#1D2024' : '#0E0F11', border: on ? '#3A3F45' : '#24272B', op: on ? 1 : 0.55,
+          boxBg: on ? '#EDEEF0' : 'transparent', boxBorder: on ? '#EDEEF0' : '#5A6068', checkOp: on ? 1 : 0,
+          toggle: function () { var o = Object.assign({}, off); o[m.id] = on; self.setState({ off: o }); }
+        };
+      }),
+      count: count, modelCount: modelCount, trials: trials,
+      inc: function () { self.setState({ count: Math.min(50, count + 1) }); },
+      dec: function () { self.setState({ count: Math.max(1, count - 1) }); },
+      suiteRange: su.range, optLine: su.opt,
+      belowMin: suite === 'primary' && trials < 20,
+      modeLabel: mode.label, modeFg: mode.fg, modeBg: mode.bg,
+      checkTitle: modelCount === 0 ? 'Pick at least one model' : mode.title,
+      checkDetail: modelCount === 0 ? 'A run needs one or more models.' : mode.detail,
+      checkFg: modelCount === 0 ? '#F5B13D' : mode.fg, checkBg: modelCount === 0 ? 'rgba(245,177,61,0.12)' : mode.bg,
+      runDisabled: blocked ? 'true' : 'false',
+      runBg: blocked ? '#24272B' : '#F4F5F6', runFg: blocked ? '#8A9198' : '#0E0F11'
+    };
+  }
+}
+</script>
+</body>
+</html>

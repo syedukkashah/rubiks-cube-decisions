@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cube Race · Benchmark slide</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E0F11}
+</style>
+</helmet>
+<div style="width: 1920px; height: 1080px; box-sizing: border-box; padding: 64px 80px 56px; background: #0E0F11; color: #EDEEF0; font-family: 'Inter Tight', system-ui, sans-serif; display: flex; flex-direction: column; gap: 36px">
+
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 40px">
+    <div style="display: flex; flex-direction: column; gap: 14px">
+      <span style="display: flex; align-items: center; gap: 14px; font-size: 18px; font-weight: 600; letter-spacing: 0.14em; color: #8A9198">
+        <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true"><rect x="0" y="0" width="10" height="10" rx="2" fill="#E0393E"></rect><rect x="12" y="0" width="10" height="10" rx="2" fill="#F2F3F5"></rect><rect x="0" y="12" width="10" height="10" rx="2" fill="#2D6BDF"></rect><rect x="12" y="12" width="10" height="10" rx="2" fill="#22A95B"></rect></svg>
+        RUBIK'S CUBE RACE · BENCHMARK RESULTS
+      </span>
+      <h1 style="margin: 0; font-size: 60px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.05">Fast decisions vs. frontier planning</h1>
+      <span style="font-size: 20px; color: #A0A6AD">run_01 · 3 primary puzzles × 4 models = 12 trials · max 30 moves · HTM · same scramble, prompt, 15 s timeout and 1 retry for every model</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; background: #F4F5F6; color: #0E0F11; border-radius: 16px; padding: 18px 26px; flex: 0 0 auto">
+      <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.14em; color: #4A4F55">STUDENT</span>
+      <span style="font-weight: 700; font-size: 30px">[Student Name]</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 24px">[Roll No.]</span>
+    </div>
+  </div>
+
+  <div style="background: #16181B; border: 1px solid #24272B; border-radius: 24px; padding: 12px 36px">
+    <table style="width: 100%; border-collapse: collapse">
+      <thead>
+        <tr style="color: #8A9198; font-size: 17px; text-align: right">
+          <th scope="col" style="text-align: left; font-weight: 600; padding: 20px 0 16px">Model</th>
+          <th scope="col" style="font-weight: 600; padding: 20px 0 16px">Avg latency / move</th>
+          <th scope="col" style="font-weight: 600; padding: 20px 0 16px">Total solve time</th>
+          <th scope="col" style="font-weight: 600; padding: 20px 0 16px">Total moves</th>
+          <th scope="col" style="font-weight: 600; padding: 20px 0 16px">Success rate</th>
+          <th scope="col" style="font-weight: 600; padding: 20px 0 16px">Optimality gap</th>
+        </tr>
+      </thead>
+      <tbody style="font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; text-align: right">
+        <tr style="border-top: 1px solid #2A2E33">
+          <th scope="row" style="text-align: left; padding: 22px 0; font-family: 'Inter Tight', system-ui, sans-serif"><span style="display: flex; align-items: center; gap: 16px"><span style="width: 14px; height: 44px; border-radius: 4px; background: #6EA8FE"></span><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 28px; font-weight: 700">Jev 1.13</span><span style="font-size: 16px; font-weight: 500; color: #8A9198">System-1 · Decisions API</span></span></span></th>
+          <td style="padding: 22px 0">186 ms</td>
+          <td style="padding: 22px 0">1.00 s</td>
+          <td style="padding: 22px 0">15</td>
+          <td style="padding: 22px 0"><span style="padding: 4px 14px; border-radius: 12px; background: rgba(61,214,140,0.14); color: #3DD68C">100%</span></td>
+          <td style="padding: 22px 0">+0.67</td>
+        </tr>
+        <tr style="border-top: 1px solid #2A2E33">
+          <th scope="row" style="text-align: left; padding: 22px 0; font-family: 'Inter Tight', system-ui, sans-serif"><span style="display: flex; align-items: center; gap: 16px"><span style="width: 14px; height: 44px; border-radius: 4px; background: #C08CFF"></span><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 28px; font-weight: 700">GPT-6 Luna Decisions</span><span style="font-size: 16px; font-weight: 500; color: #8A9198">System-1 · Decisions API</span></span></span></th>
+          <td style="padding: 22px 0">377 ms</td>
+          <td style="padding: 22px 0">61.40 s</td>
+          <td style="padding: 22px 0">11</td>
+          <td style="padding: 22px 0">66.67%</td>
+          <td style="padding: 22px 0">+0.50</td>
+        </tr>
+        <tr style="border-top: 1px solid #2A2E33">
+          <th scope="row" style="text-align: left; padding: 22px 0; font-family: 'Inter Tight', system-ui, sans-serif"><span style="display: flex; align-items: center; gap: 16px"><span style="width: 14px; height: 44px; border-radius: 4px; background: #3CCBDA"></span><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 28px; font-weight: 700">Cloudflare Clef</span><span style="font-size: 16px; font-weight: 500; color: #8A9198">System-1 · Decisions API</span></span></span></th>
+          <td style="padding: 22px 0"><span style="padding: 4px 14px; border-radius: 12px; background: rgba(61,214,140,0.14); color: #3DD68C">115 ms</span></td>
+          <td style="padding: 22px 0">1.67 s</td>
+          <td style="padding: 22px 0">40</td>
+          <td style="padding: 22px 0">66.67%</td>
+          <td style="padding: 22px 0">+0.50</td>
+        </tr>
+        <tr style="border-top: 1px solid #2A2E33">
+          <th scope="row" style="text-align: left; padding: 22px 0; font-family: 'Inter Tight', system-ui, sans-serif"><span style="display: flex; align-items: center; gap: 16px"><span style="width: 14px; height: 44px; border-radius: 4px; background: #FF9466"></span><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 28px; font-weight: 700">Claude Opus 5.5</span><span style="font-size: 16px; font-weight: 500; color: #8A9198">Frontier LLM · Chat completions</span></span></span></th>
+          <td style="padding: 22px 0">5.91 s</td>
+          <td style="padding: 22px 0">45.67 s</td>
+          <td style="padding: 22px 0">13</td>
+          <td style="padding: 22px 0"><span style="padding: 4px 14px; border-radius: 12px; background: rgba(61,214,140,0.14); color: #3DD68C">100%</span></td>
+          <td style="padding: 22px 0"><span style="padding: 4px 14px; border-radius: 12px; background: rgba(61,214,140,0.14); color: #3DD68C">0.00</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px">
+    <div style="background: #16181B; border: 1px solid #24272B; border-radius: 20px; padding: 22px 26px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">FASTEST DECISIONS</span>
+      <span style="font-size: 30px; font-weight: 700; color: #3CCBDA">Cloudflare Clef</span>
+      <span style="font-size: 18px; color: #C9CDD2">115 ms per move on average</span>
+    </div>
+    <div style="background: #16181B; border: 1px solid #24272B; border-radius: 20px; padding: 22px 26px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">HIGHEST SOLVE RATE</span>
+      <span style="font-size: 30px; font-weight: 700; color: #6EA8FE">Jev 1.13</span>
+      <span style="font-size: 18px; color: #C9CDD2">100%, tied with Opus 5.5</span>
+    </div>
+    <div style="background: #16181B; border: 1px solid #24272B; border-radius: 20px; padding: 22px 26px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">SHORTEST SOLUTIONS</span>
+      <span style="font-size: 30px; font-weight: 700; color: #FF9466">Claude Opus 5.5</span>
+      <span style="font-size: 18px; color: #C9CDD2">Optimal on every solved puzzle</span>
+    </div>
+    <div style="background: #16181B; border: 1px solid #24272B; border-radius: 20px; padding: 22px 26px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">FASTEST = BEST QUALITY?</span>
+      <span style="font-size: 30px; font-weight: 700; color: #F5B13D">No</span>
+      <span style="font-size: 18px; color: #C9CDD2">Speed and solution quality split</span>
+    </div>
+  </div>
+
+  <div style="margin-top: auto; display: flex; justify-content: space-between; font-size: 16px; color: #8A9198">
+    <span>Source: GET /runs/run_01/stats · all metrics computed by the backend</span>
+    <span>Optimality gap = model moves − exact BFS shortest moves</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

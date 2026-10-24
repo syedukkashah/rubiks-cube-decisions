@@ -1,0 +1,32 @@
+{
+  "session_id": "sess_02",
+  "source": "replay",
+  "requested_source": "auto",
+  "status": "running",
+  "speed": 1.0,
+  "created_at": "2026-10-25T11:00:00Z",
+  "finished_at": null,
+  "replay_of_session_id": "sess_01",
+  "recorded_at": "2026-10-25T10:12:00Z",
+  "total_cost_usd": null,
+  "runs": [
+    {
+      "step": "warmup",
+      "suite": "warmup",
+      "run_id": "run_11",
+      "status": "completed"
+    },
+    {
+      "step": "primary",
+      "suite": "primary",
+      "run_id": "run_12",
+      "status": "running"
+    },
+    {
+      "step": "extension",
+      "suite": "extension",
+      "run_id": "run_13",
+      "status": "queued"
+    }
+  ]
+}
