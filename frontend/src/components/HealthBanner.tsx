@@ -28,8 +28,9 @@ export function HealthBanner({ health, error, onRetry }: { health: Health | null
           <div className="notice__body">
             <strong>OpenRouter API key not configured on the backend</strong>
             <span className="notice__guidance">
-              Benchmarks cannot start. Put OPENROUTER_API_KEY in backend/.env (see backend/.env.example) and restart the
-              backend. The key never goes into the frontend.
+              Live runs need it. The one-click benchmark still works: it simulates, or replays a saved live recording,
+              with no OpenRouter calls. For the live pass, put OPENROUTER_API_KEY in backend/.env (see
+              backend/.env.example) and restart the backend. The key never goes into the frontend.
             </span>
           </div>
           <button type="button" className="btn btn--ghost" onClick={onRetry}>

@@ -8,6 +8,9 @@ import runSnapshots from '../../../contract/fixtures/run_snapshots.json';
 import runEvents from '../../../contract/fixtures/run_events.json';
 import runStats from '../../../contract/fixtures/run_stats.json';
 import errorMissingApiKey from '../../../contract/fixtures/error_missing_api_key.json';
+import benchmarkInfo from '../../../contract/fixtures/benchmark_info.json';
+import benchmarkSession from '../../../contract/fixtures/benchmark_session.json';
+import benchmarkSessionGateStop from '../../../contract/fixtures/benchmark_session_gate_stop.json';
 import runPlayback from './fixtures/run_playback.json';
 // 409 spend pre-check example from AGENTS.md 5.6 (v1.1.0). Local until /contract/fixtures has one.
 import errorSpendCap from './fixtures/error_spend_cap.json';
@@ -39,6 +42,12 @@ export const fixtures = {
   runStatsTimeline: (runStats as unknown[]).map((stats, i) => ({ after_seq: statsCheckpoints[i] ?? 0, stats })),
   errorMissingApiKey: errorMissingApiKey as unknown,
   errorSpendCap: errorSpendCap as unknown,
+  /** GET /benchmark (5.10): plan, sources and the saved recording. */
+  benchmarkInfo: benchmarkInfo as unknown,
+  /** A replay session mid-way (5.10). */
+  benchmarkSession: benchmarkSession as unknown,
+  /** A live session stopped by the warm-up step gate (5.10, v1.3.0). */
+  benchmarkSessionGateStop: benchmarkSessionGateStop as unknown,
 };
 
 /** The run id used inside the recording. */

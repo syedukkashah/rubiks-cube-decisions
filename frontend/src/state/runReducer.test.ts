@@ -113,7 +113,7 @@ describe('runReducer: live move state', () => {
     const tid = invalid.trial_id!;
 
     const requested = events.filter((e) => e.type === 'move_requested' && e.trial_id === tid && e.seq < invalid.seq).at(-1)!;
-    expect(upTo(requested.seq).live[tid]?.awaiting).toEqual(requested.data);
+    expect(upTo(requested.seq).live[tid]?.awaiting).toEqual({ ...requested.data, ts: requested.ts });
 
     const afterInvalid = upTo(invalid.seq);
     expect(afterInvalid.live[tid]?.awaiting).toBeNull();
@@ -128,6 +128,11 @@ describe('runReducer: live move state', () => {
     expect(t.current_facelets).toBe(applied.type === 'move_applied' ? applied.data.facelets_after : '');
     // move records never carry the event-only fields
     expect(Object.keys(t.moves.at(-1)!)).not.toContain('moves_used');
+  });
+
+  it('keeps the latest events newest first for the event stream', () => {
+    const s = feed(snap(start()), events);
+    expect(s.recentEvents.map((e) => e.seq)).toEqual(events.slice(-8).map((e) => e.seq).reverse());
   });
 
   it('bumps statsEpoch on trial and run completion', () => {

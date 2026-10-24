@@ -22,6 +22,14 @@ import {
   type TrialStatus,
   type CreateRunResponse,
   type CancelRunResponse,
+  type BenchmarkInfo,
+  type BenchmarkSession,
+  type BenchmarkSessionRun,
+  type BenchmarkStep,
+  type PlanStep,
+  type Recording,
+  type SessionRunStatus,
+  type StepGate,
 } from './types';
 
 type Obj = Record<string, unknown>;
@@ -42,6 +50,10 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T)
 }
 
 const RUN_STATUSES: readonly RunStatus[] = ['queued', 'running', 'completed', 'cancelled', 'failed'];
+const SESSION_RUN_STATUSES: readonly SessionRunStatus[] = [...RUN_STATUSES, 'skipped'];
+const STEPS: readonly BenchmarkStep[] = ['warmup', 'primary', 'extension'];
+const SUITES = ['warmup', 'primary', 'extension'] as const;
+const SOURCES = ['simulated', 'live', 'replay'] as const;
 const TRIAL_STATUSES: readonly TrialStatus[] = ['pending', 'running', 'solved', 'move_limit', 'error'];
 
 export function normalizeErrorBody(raw: unknown): ErrorBody | null {
@@ -278,4 +290,83 @@ export function normalizeEvent(raw: unknown): RunEvent | null {
     case 'error':
       return { ...base, type: 'error', data: { code: str(d.code), message: str(d.message) } };
   }
+}
+
+// ---------- 5.10 ----------
+
+function normalizePlanStep(raw: unknown): PlanStep {
+  const o = obj(raw);
+  return {
+    step: oneOf(o.step, STEPS, 'primary'),
+    suite: oneOf(o.suite, SUITES, 'primary'),
+    count: num(o.count),
+    seed: num(o.seed),
+    max_moves: num(o.max_moves),
+    optional: bool(o.optional),
+  };
+}
+
+function normalizeRecording(raw: unknown): Recording | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const o = obj(raw);
+  return {
+    recording_id: str(o.recording_id),
+    recorded_at: str(o.recorded_at),
+    session_id: str(o.session_id),
+    trial_count: num(o.trial_count),
+    total_cost_usd: numOrNull(o.total_cost_usd),
+  };
+}
+
+export function normalizeBenchmarkInfo(raw: unknown): BenchmarkInfo {
+  const o = obj(raw);
+  const sources = obj(o.sources);
+  return {
+    plan: arr(o.plan).map(normalizePlanStep),
+    // simulated is always available (5.10)
+    sources: { simulated: true, live: bool(sources.live), replay: bool(sources.replay) },
+    auto_source: oneOf(o.auto_source, ['simulated', 'replay'] as const, 'simulated'),
+    recording: normalizeRecording(o.recording),
+  };
+}
+
+function normalizeGate(raw: unknown): StepGate | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const o = obj(raw);
+  return {
+    passed: bool(o.passed),
+    cost_usd: num(o.cost_usd),
+    expected_cost_usd: num(o.expected_cost_usd),
+    opus_truncation_pct: numOrNull(o.opus_truncation_pct),
+    reasons: arr(o.reasons).map((r) => str(r)).filter(Boolean),
+  };
+}
+
+function normalizeSessionRun(raw: unknown): BenchmarkSessionRun {
+  const o = obj(raw);
+  return {
+    step: oneOf(o.step, STEPS, 'primary'),
+    suite: oneOf(o.suite, SUITES, 'primary'),
+    run_id: str(o.run_id),
+    status: oneOf(o.status, SESSION_RUN_STATUSES, 'queued'),
+    gate: normalizeGate(o.gate),
+  };
+}
+
+export function normalizeSession(raw: unknown): BenchmarkSession {
+  const o = obj(raw);
+  return {
+    session_id: str(o.session_id),
+    source: oneOf(o.source, SOURCES, 'simulated'),
+    requested_source: oneOf(o.requested_source, ['auto', ...SOURCES] as const, 'auto'),
+    status: oneOf(o.status, RUN_STATUSES, 'queued'),
+    speed: num(o.speed, 1),
+    created_at: str(o.created_at),
+    finished_at: strOrNull(o.finished_at),
+    replay_of_session_id: strOrNull(o.replay_of_session_id),
+    recorded_at: strOrNull(o.recorded_at),
+    total_cost_usd: numOrNull(o.total_cost_usd),
+    stop_reason: o.stop_reason === 'gate' ? 'gate' : null,
+    runs: arr(o.runs).map(normalizeSessionRun),
+  };
 }

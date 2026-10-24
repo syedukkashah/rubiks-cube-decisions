@@ -1,6 +1,8 @@
 import type { ApiClient, EventStreamHandlers } from './client';
 import { ApiError } from './errors';
 import {
+  normalizeBenchmarkInfo,
+  normalizeSession,
   normalizeErrorBody,
   normalizeEvent,
   normalizeHealth,
@@ -12,7 +14,13 @@ import {
   normalizeRunStatusResponse,
   normalizeRuns,
 } from './normalize';
-import { KNOWN_EVENT_TYPES, type CreatePuzzlesRequest, type CreateRunRequest, type Suite } from './types';
+import {
+  KNOWN_EVENT_TYPES,
+  type CreatePuzzlesRequest,
+  type CreateRunRequest,
+  type CreateSessionRequest,
+  type Suite,
+} from './types';
 
 /** Drops undefined/null optional fields: the contract lets the client omit them (5.1). */
 function compact<T extends object>(body: T): Partial<T> {
@@ -64,6 +72,11 @@ export function createHttpClient(baseUrl: string, fetchImpl: typeof fetch = (...
     getRun: (id: string) => request(`/runs/${enc(id)}`, normalizeRunSnapshot),
     cancelRun: (id: string) => request(`/runs/${enc(id)}/cancel`, normalizeRunStatusResponse, { method: 'POST' }),
     getStats: (id: string) => request(`/runs/${enc(id)}/stats`, normalizeRunStats),
+    getBenchmark: () => request('/benchmark', normalizeBenchmarkInfo),
+    createSession: (req: CreateSessionRequest) =>
+      request('/benchmark/sessions', normalizeSession, { method: 'POST', body: compact(req) }),
+    getSession: (id: string) => request(`/benchmark/sessions/${enc(id)}`, normalizeSession),
+    cancelSession: (id: string) => request(`/benchmark/sessions/${enc(id)}/cancel`, normalizeSession, { method: 'POST' }),
     subscribeEvents: (runId: string, afterSeq: number, handlers: EventStreamHandlers) =>
       openEventSource(`${baseUrl}/runs/${enc(runId)}/events?after_seq=${afterSeq}`, handlers),
   };

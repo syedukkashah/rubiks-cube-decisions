@@ -1,9 +1,9 @@
-// Types for the JSON API contract v1.1.0 (AGENTS.md section 5).
+// Types for the JSON API contract v1.3.0 (AGENTS.md section 5).
 // Field names, nullability and enums mirror the contract exactly; nothing here is invented.
 // Every response passes through ./normalize.ts, which drops unknown fields and turns
 // missing nullable fields into explicit nulls.
 
-export const CONTRACT_VERSION = '1.1.0';
+export const CONTRACT_VERSION = '1.3.0';
 
 /** HTM face-turn metric, AGENTS.md 4.1. Display-only here: the backend validates moves. */
 export type Move = string;
@@ -304,6 +304,84 @@ export interface RunStats {
   run_status: RunStatus;
   models: ModelStats[];
   questions_answered: QuestionsAnswered;
+}
+
+// ---------- 5.10 one-click benchmark, record and replay ----------
+
+export type BenchmarkSource = 'simulated' | 'live' | 'replay';
+export type BenchmarkRequestedSource = 'auto' | BenchmarkSource;
+export type BenchmarkStep = 'warmup' | 'primary' | 'extension';
+
+export interface PlanStep {
+  step: BenchmarkStep;
+  suite: Suite;
+  count: number;
+  seed: number;
+  max_moves: number;
+  optional: boolean;
+}
+
+export interface Recording {
+  recording_id: string;
+  recorded_at: Timestamp;
+  session_id: string;
+  trial_count: number;
+  total_cost_usd: number | null;
+}
+
+export interface BenchmarkInfo {
+  plan: PlanStep[];
+  sources: Record<BenchmarkSource, boolean>;
+  auto_source: 'simulated' | 'replay';
+  recording: Recording | null;
+}
+
+export interface CreateSessionRequest {
+  source?: BenchmarkRequestedSource;
+  speed?: number;
+  include_extension?: boolean;
+  confirm_cost?: boolean;
+}
+
+/** Speed bounds for POST /benchmark/sessions (5.10); only paces simulated and replay sessions. */
+export const SESSION_SPEED = { min: 0.25, max: 20, default: 1 } as const;
+
+export type SessionRunStatus = RunStatus | 'skipped';
+
+/** 6.2 gate a live step can fail (5.10 "Step gates", v1.3.0). Thresholds live in the backend. */
+export type GateReason = 'cost_over_expected' | 'opus_truncation' | 'run_aborted' | 'budget';
+
+export interface StepGate {
+  passed: boolean;
+  cost_usd: number;
+  expected_cost_usd: number;
+  opus_truncation_pct: number | null;
+  reasons: (GateReason | string)[];
+}
+
+export interface BenchmarkSessionRun {
+  step: BenchmarkStep;
+  suite: Suite;
+  run_id: string;
+  status: SessionRunStatus;
+  /** null until a live step is evaluated; always null for simulated and replay. */
+  gate: StepGate | null;
+}
+
+export interface BenchmarkSession {
+  session_id: string;
+  source: BenchmarkSource;
+  requested_source: BenchmarkRequestedSource;
+  status: RunStatus;
+  speed: number;
+  created_at: Timestamp;
+  finished_at: Timestamp | null;
+  replay_of_session_id: string | null;
+  recorded_at: Timestamp | null;
+  total_cost_usd: number | null;
+  /** "gate" when a failed step gate stopped a live session before its next step. */
+  stop_reason: 'gate' | null;
+  runs: BenchmarkSessionRun[];
 }
 
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'cancelled', 'failed'];

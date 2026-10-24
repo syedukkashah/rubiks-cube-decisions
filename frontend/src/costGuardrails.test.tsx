@@ -1,4 +1,4 @@
-// Contract v1.1.0 cost guardrails (AGENTS.md 5.6, 6.1 G4/G5/G9).
+// Cost guardrails from contract v1.1.0, still in force in v1.3.0 (AGENTS.md 5.6, 6.1 G4/G5/G9).
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -29,15 +29,21 @@ function renderApp(scenario: MockScenario) {
   return api;
 }
 
-async function clickRun() {
-  const start = await screen.findByRole('button', { name: 'Run benchmark' });
+/** The custom run lives behind the "Advanced" disclosure on Setup. */
+async function openCustomRun() {
+  await userEvent.click(await screen.findByText('Advanced · one custom run'));
+  const start = await screen.findByRole('button', { name: 'Run custom benchmark' });
   await waitFor(() => expect(start).toBeEnabled());
-  await userEvent.click(start);
+  return start;
 }
 
-describe('contract v1.1.0 defaults', () => {
+async function clickRun() {
+  await userEvent.click(await openCustomRun());
+}
+
+describe('cost-guardrail defaults', () => {
   it('uses the cost-guardrail run defaults', () => {
-    expect(CONTRACT_VERSION).toBe('1.1.0');
+    expect(CONTRACT_VERSION).toBe('1.3.0');
     expect(RUN_DEFAULTS).toEqual({ max_moves: 30, timeout_s: 15, max_retries: 1, history_window: 6, concurrency: 1 });
     expect(RUN_LIMITS.timeout_s).toEqual({ min: 1, max: 20 });
     expect(RUN_LIMITS.max_retries).toEqual({ min: 0, max: 1 });
@@ -53,8 +59,8 @@ describe('contract v1.1.0 defaults', () => {
 
   it('blocks out-of-range timeout and retries instead of sending them', async () => {
     renderApp('default');
-    const start = await screen.findByRole('button', { name: 'Run benchmark' });
-    await waitFor(() => expect(start).toBeEnabled());
+    const start = await openCustomRun();
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
     const timeout = screen.getByLabelText(/Timeout \(s, 1–20\)/);
     const retries = screen.getByLabelText(/Max retries \(0–1\)/);
@@ -69,7 +75,7 @@ describe('contract v1.1.0 defaults', () => {
     await userEvent.clear(retries);
     await userEvent.type(retries, '2');
     expect(start).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Timeout must be 1–20 s. Max retries must be 0–1.');
+    expect(screen.getByText(/Timeout must be 1–20 s\./)).toHaveTextContent('Timeout must be 1–20 s. Max retries must be 0–1.');
 
     await userEvent.clear(timeout);
     await userEvent.type(timeout, '20');
@@ -192,16 +198,16 @@ describe('run-level abort', () => {
     expect(abort).toHaveTextContent('Live spend cap reached');
     expect(abort).toHaveTextContent('conflict');
     // unfinished trials are not presented as still playing
-    const matrix = screen.getByRole('heading', { name: 'Results by puzzle' }).closest('section')!;
-    expect(within(matrix).queryByText('Playing…')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Run benchmark' })).toBeEnabled();
+    const matrix = screen.getByRole('heading', { name: /Results matrix/ }).closest('section')!;
+    expect(within(matrix).queryByText(/Thinking|Retrying/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'New run' })).toBeInTheDocument();
     expect(screen.getByTestId('identity-badge')).toBeInTheDocument();
   });
 });
 
 describe('mock health', () => {
-  it('reports contract 1.1.0', async () => {
+  it('reports contract 1.3.0', async () => {
     const health = await createMockClient({ latencyMs: 0 }).getHealth();
-    expect(health.contract_version).toBe('1.1.0');
+    expect(health.contract_version).toBe('1.3.0');
   });
 });

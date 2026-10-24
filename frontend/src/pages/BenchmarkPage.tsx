@@ -1,37 +1,69 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApi } from '../api/ApiContext';
-import { isTerminalRun, type ModelInfo, type Puzzle } from '../api/types';
+import { conflictTarget } from '../api/errors';
+import { isTerminalRun, type CreateSessionRequest, type ModelInfo, type Puzzle, type Suite } from '../api/types';
 import { ErrorNotice } from '../components/ErrorNotice';
-import { ModelLane } from '../components/ModelLane';
-import { PuzzlePanel } from '../components/PuzzlePanel';
-import { ResultsMatrix } from '../components/ResultsMatrix';
-import { RunControls, type BenchmarkRequest } from '../components/RunControls';
-import { RunStatusBar } from '../components/RunStatusBar';
-import { StatsDashboard } from '../components/StatsDashboard';
-import { laneTrial, livePuzzleId, runProgress, trialsOf } from '../state/selectors';
+import type { BenchmarkRequest } from '../components/RunControls';
+import { STEP_NAME } from '../lib/status';
+import { usePublishShellStatus, type Stage } from '../state/shellStatus';
 import { useAsync } from '../state/useAsync';
 import { useRunSession } from '../state/useRunSession';
+import { sessionActiveRunId, sessionResultsRunId, useBenchmarkSession } from '../state/useSession';
+import { RaceView } from './RaceView';
+import { ResultsView } from './ResultsView';
+import { SetupView } from './SetupView';
 
-type Phase = 'puzzles' | 'run' | null;
-const PHASE_LABEL = { puzzles: 'Generating puzzles…', run: 'Starting run…' } as const;
+const LAST_SESSION_KEY = 'rubiks-cube-race:last-session';
+const SUITE_KICKER: Record<Suite, string> = { warmup: 'WARM-UP', primary: 'PRIMARY', extension: 'EXTENSION' };
 
+function readLastSession(): string | null {
+  try {
+    return localStorage.getItem(LAST_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberSession(id: string) {
+  try {
+    localStorage.setItem(LAST_SESSION_KEY, id);
+  } catch {
+    // per-browser convenience only
+  }
+}
+
+/**
+ * `/` with no selection = Setup. `?session=` follows a one-click session along its runs;
+ * `?run=` shows one run. The stage is Race while the run (or session) is active and Results
+ * once it is over, unless `?view=race|results` picks one.
+ */
 export function BenchmarkPage() {
   const api = useApi();
   const [params, setParams] = useSearchParams();
-  const runId = params.get('run');
+  const sessionId = params.get('session');
+  const pickedRun = params.get('run');
+  const viewParam = params.get('view');
+
+  const { session, error: sessionError, reload: reloadSession } = useBenchmarkSession(sessionId);
+  const sessionOver = session ? isTerminalRun(session.status) : false;
+  const followRun = session ? (sessionOver ? sessionResultsRunId(session) : sessionActiveRunId(session)) : null;
+  const runId = pickedRun ?? followRun;
 
   const { state, stream, loadError, reload } = useRunSession(runId);
   const models = useAsync(() => api.listModels(), [api]);
-  const runs = useAsync(() => api.listRuns(), [api, runId, state.status]);
+  const info = useAsync(() => api.getBenchmark(), [api, !runId, sessionOver]);
+  const runs = useAsync(!runId && !sessionId ? () => api.listRuns() : null, [api, runId, sessionId]);
   const storedPuzzles = useAsync(runId ? () => api.listPuzzles() : null, [api, runId]);
   const stats = useAsync(runId ? () => api.getStats(runId) : null, [api, runId, state.statsEpoch]);
 
   const [createdPuzzles, setCreatedPuzzles] = useState<Record<string, Puzzle>>({});
   const [focus, setFocus] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>(null);
+  const [busy, setBusy] = useState<'session' | 'run' | null>(null);
+  const [phaseLabel, setPhaseLabel] = useState<string | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [lastSession, setLastSession] = useState<string | null>(readLastSession);
 
   useEffect(() => setFocus(null), [runId]);
 
@@ -47,28 +79,74 @@ export function BenchmarkPage() {
     return map;
   }, [createdPuzzles, storedPuzzles.data]);
 
-  const active = state.loaded && state.status !== null && !isTerminalRun(state.status);
-  const runStats = stats.data && stats.data.run_id === runId ? stats.data : null;
-  const shownPuzzleId = focus ?? livePuzzleId(state);
-  const fallbackFacelets = trialsOf(state).find((t) => t.puzzle_id === shownPuzzleId)?.initial_facelets ?? null;
-  const modelIds = state.config?.model_ids ?? [];
+  const runActive = state.loaded && state.status !== null && !isTerminalRun(state.status);
+  const stage: Stage = !runId
+    ? 'setup'
+    : viewParam === 'race' || viewParam === 'results'
+      ? viewParam
+      : (session && !sessionOver) || !state.loaded || runActive
+        ? 'race'
+        : 'results';
+  usePublishShellStatus(stage, runId ? stream : 'idle', session);
 
-  async function start(req: BenchmarkRequest) {
+  const runStats = stats.data && stats.data.run_id === runId ? stats.data : null;
+  const step = session?.runs.find((r) => r.run_id === runId) ?? null;
+  const planStep = step ? info.data?.plan.find((p) => p.step === step.step) : undefined;
+  const suite: Suite | null = step?.suite ?? puzzlesById[state.config?.puzzle_ids[0] ?? '']?.suite ?? null;
+  const kicker = [
+    suite ? `${SUITE_KICKER[suite]} BENCHMARK` : 'BENCHMARK',
+    step ? `STEP ${session!.runs.indexOf(step) + 1} OF ${session!.runs.length} · ${STEP_NAME[step.step].toUpperCase()}` : null,
+    runId?.toUpperCase(),
+    stage === 'results' && state.status ? state.status.toUpperCase() : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const selectRun = (id: string) => {
+    const next = new URLSearchParams();
+    if (sessionId) next.set('session', sessionId);
+    next.set('run', id);
+    setParams(next);
+  };
+
+  const openTarget = (err: unknown) => {
+    const target = conflictTarget(err);
+    if (!target) return null;
+    return {
+      label: target.kind === 'session' ? 'Open that session' : 'Open that run',
+      onClick: () => {
+        setActionError(null);
+        setParams(target.kind === 'session' ? { session: target.id } : { run: target.id });
+      },
+    };
+  };
+
+  async function startSession(req: CreateSessionRequest) {
     setActionError(null);
+    setBusy('session');
     try {
-      let puzzleIds: string[];
-      if (req.puzzles.source === 'generate') {
-        setPhase('puzzles');
-        const { suite, count, scramble_length, seed } = req.puzzles;
-        const created = await api.createPuzzles({ suite, count, scramble_length, seed });
-        setCreatedPuzzles((prev) => ({ ...prev, ...Object.fromEntries(created.map((p) => [p.puzzle_id, p])) }));
-        puzzleIds = created.map((p) => p.puzzle_id);
-      } else {
-        puzzleIds = req.puzzles.puzzle_ids;
-      }
-      setPhase('run');
+      const s = await api.createSession(req);
+      rememberSession(s.session_id);
+      setLastSession(s.session_id);
+      setParams({ session: s.session_id });
+    } catch (err) {
+      setActionError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function startRun(req: BenchmarkRequest) {
+    setActionError(null);
+    setBusy('run');
+    try {
+      setPhaseLabel('Generating puzzles…');
+      const { suite: s, count, scramble_length, seed } = req.puzzles;
+      const created = await api.createPuzzles({ suite: s, count, scramble_length, seed });
+      setCreatedPuzzles((prev) => ({ ...prev, ...Object.fromEntries(created.map((p) => [p.puzzle_id, p])) }));
+      setPhaseLabel('Starting run…');
       const run = await api.createRun({
-        puzzle_ids: puzzleIds,
+        puzzle_ids: created.map((p) => p.puzzle_id),
         model_ids: req.model_ids,
         max_moves: req.max_moves,
         timeout_s: req.timeout_s,
@@ -80,16 +158,21 @@ export function BenchmarkPage() {
     } catch (err) {
       setActionError(err);
     } finally {
-      setPhase(null);
+      setBusy(null);
+      setPhaseLabel(null);
     }
   }
 
   async function cancel() {
-    if (!runId) return;
     setCancelling(true);
     setActionError(null);
     try {
-      await api.cancelRun(runId);
+      if (session && !sessionOver) {
+        await api.cancelSession(session.session_id);
+        reloadSession();
+      } else if (runId) {
+        await api.cancelRun(runId);
+      }
     } catch (err) {
       setActionError(err);
     } finally {
@@ -97,87 +180,82 @@ export function BenchmarkPage() {
     }
   }
 
-  return (
-    <div className="page">
-      <RunControls
-        models={models.data}
-        busy={phase !== null}
-        active={active}
-        phaseLabel={phase ? PHASE_LABEL[phase] : null}
-        onStart={start}
-        onCancel={cancel}
-        canCancel={active}
-        cancelling={cancelling}
-      />
+  const notices = (
+    <>
       {models.error ? <ErrorNotice error={models.error} onRetry={models.reload} /> : null}
-      {actionError ? <ErrorNotice error={actionError} /> : null}
+      {info.error && !runId ? <ErrorNotice error={info.error} onRetry={info.reload} /> : null}
+      {actionError ? <ErrorNotice error={actionError} action={openTarget(actionError)} /> : null}
+      {sessionError ? <ErrorNotice error={sessionError} onRetry={reloadSession} /> : null}
+      {loadError ? <ErrorNotice error={loadError} onRetry={reload} /> : null}
+    </>
+  );
 
-      {(runId || (runs.data && runs.data.length > 0)) && (
-        <RunStatusBar
+  if (!runId) {
+    return (
+      <>
+        <div className="page-notices">{notices}</div>
+        {sessionId && !session && !sessionError ? (
+          <p className="page muted">Loading benchmark session…</p>
+        ) : (
+          <SetupView
+            info={info.data}
+            models={models.data}
+            runs={runs.data}
+            lastSessionId={lastSession}
+            busy={busy}
+            phaseLabel={phaseLabel}
+            onStartSession={startSession}
+            onStartRun={startRun}
+            onOpenRun={(id) => setParams({ run: id })}
+            onOpenSession={(id) => setParams({ session: id })}
+          />
+        )}
+      </>
+    );
+  }
+
+  const slide = new URLSearchParams();
+  if (sessionId) slide.set('session', sessionId);
+  slide.set('run', runId);
+
+  return (
+    <>
+      <div className="page-notices">{notices}</div>
+      {stage === 'race' ? (
+        <RaceView
           runId={runId}
-          status={state.status}
+          state={state}
           stream={stream}
-          progress={runProgress(state)}
-          startedAt={state.startedAt}
-          finishedAt={state.finishedAt}
-          runs={runs.data}
-          onSelectRun={(id) => setParams({ run: id })}
-          runError={state.runError}
+          session={session}
+          models={modelsById}
+          puzzles={puzzlesById}
+          stats={runStats}
+          kicker={kicker}
+          seed={planStep?.seed ?? null}
+          focus={focus}
+          onFocus={setFocus}
+          onSelectRun={selectRun}
+          canCancel={session ? !sessionOver : runActive}
+          cancelling={cancelling}
+          onCancel={cancel}
+        />
+      ) : (
+        <ResultsView
+          runId={runId}
+          state={state}
+          stream={stream}
+          session={session}
+          models={modelsById}
+          puzzles={puzzlesById}
+          stats={runStats}
+          statsError={stats.error}
+          statsLoading={stats.loading}
+          onReloadStats={stats.reload}
+          kicker={kicker}
+          slideHref={`/slide?${slide.toString()}`}
+          onSelectRun={selectRun}
         />
       )}
-      {loadError ? <ErrorNotice error={loadError} onRetry={reload} /> : null}
-
-      {!runId ? (
-        <section className="card empty-state">
-          <h2>No benchmark selected</h2>
-          <p className="muted">
-            Press <strong>Run benchmark</strong> to generate scrambles and race the four models on the same cube, or pick a
-            previous run above. Every model gets the same scramble, engine, move set, timeout and retry policy.
-          </p>
-        </section>
-      ) : (
-        <>
-          <div className="arena">
-            <PuzzlePanel
-              puzzleIds={state.config?.puzzle_ids ?? []}
-              puzzles={puzzlesById}
-              shownPuzzleId={shownPuzzleId}
-              focusPuzzleId={focus}
-              onFocus={setFocus}
-              fallbackFacelets={fallbackFacelets}
-            />
-            <div className="lanes" data-count={modelIds.length}>
-              {modelIds.map((id) => {
-                const trial = laneTrial(state, id, focus);
-                return (
-                  <ModelLane
-                    key={id}
-                    modelId={id}
-                    model={modelsById[id] ?? null}
-                    trial={trial}
-                    live={trial ? (state.live[trial.trial_id] ?? null) : null}
-                    runStatus={state.status}
-                    maxMoves={state.config?.max_moves ?? null}
-                  />
-                );
-              })}
-              {state.loaded && modelIds.length === 0 && <p className="muted">This run has no models.</p>}
-              {!state.loaded && !loadError && <p className="muted">Loading run…</p>}
-            </div>
-          </div>
-
-          <ResultsMatrix
-            state={state}
-            models={modelsById}
-            puzzles={puzzlesById}
-            runStatus={state.status}
-            focusPuzzleId={focus}
-            onFocus={setFocus}
-          />
-
-          <StatsDashboard stats={runStats} error={stats.error} loading={stats.loading} onRetry={stats.reload} />
-        </>
-      )}
-    </div>
+    </>
   );
 }

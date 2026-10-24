@@ -20,21 +20,21 @@ const FACE_POS: Record<Face, [number, number]> = {
   D: [1, 2],
 };
 
-/** Standard Western scheme: each letter is the face whose centre the colour belongs to. */
+/** Standard Western scheme (design sticker tokens): each letter is the face whose centre the colour belongs to. */
 const FACE_COLORS: Record<Face, string> = {
-  U: '#f4f4f1',
-  R: '#d0312d',
-  F: '#1f9d55',
-  D: '#f7d417',
-  L: '#f2780c',
-  B: '#2563d6',
+  U: '#F2F3F5',
+  R: '#E0393E',
+  F: '#22A95B',
+  D: '#F5CC2E',
+  L: '#F28A1D',
+  B: '#2D6BDF',
 };
 
 const FACE_NAMES: Record<Face, string> = { U: 'Up', R: 'Right', F: 'Front', D: 'Down', L: 'Left', B: 'Back' };
 
 const STICKER = 10;
-const GAP = 1.2;
-const FACE_GAP = 3;
+const GAP = 1.3;
+const FACE_GAP = 3.6;
 const FACE_SIZE = 3 * STICKER + 2 * GAP;
 const WIDTH = 4 * FACE_SIZE + 3 * FACE_GAP;
 const HEIGHT = 3 * FACE_SIZE + 2 * FACE_GAP;
@@ -89,7 +89,7 @@ function CubeNetImpl({ facelets, highlightFace = null, size = 220, label = 'Cube
                   y={oy + Math.floor(i / 3) * (STICKER + GAP)}
                   width={STICKER}
                   height={STICKER}
-                  rx={1.6}
+                  rx={1.8}
                   fill={FACE_COLORS[c]}
                 />
               );

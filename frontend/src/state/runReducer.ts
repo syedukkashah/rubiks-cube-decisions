@@ -27,10 +27,15 @@ export interface InvalidOutput extends MoveInvalidData {
   ts: Timestamp;
 }
 
+/** A move request the model has not answered yet, with the event's `ts` (drives display timers only). */
+export interface AwaitingMove extends MoveRequestedData {
+  ts: Timestamp;
+}
+
 /** Live, event-only details that the snapshot does not carry. */
 export interface TrialLive {
   /** Set by move_requested, cleared when that request resolves. */
-  awaiting: MoveRequestedData | null;
+  awaiting: AwaitingMove | null;
   /** Every move_invalid seen for this trial, in seq order. */
   invalid: InvalidOutput[];
 }
@@ -53,6 +58,8 @@ export interface RunState {
   pending: Record<number, RunEvent>;
   trialCount: number | null;
   runError: RunErrorData | null;
+  /** The most recent applied events, newest first (event stream panel). */
+  recentEvents: RunEvent[];
   /** Bumped whenever backend stats may have changed (trial or run finished, snapshot applied). */
   statsEpoch: number;
 }
@@ -77,8 +84,11 @@ export const initialRunState: RunState = {
   pending: {},
   trialCount: null,
   runError: null,
+  recentEvents: [],
   statsEpoch: 0,
 };
+
+const RECENT_EVENTS = 8;
 
 const EMPTY_LIVE: TrialLive = { awaiting: null, invalid: [] };
 
@@ -144,7 +154,8 @@ function drain(state: RunState): RunState {
   const pending = { ...s.pending };
   while (next) {
     delete pending[next.seq];
-    s = { ...applyEvent(s, next), lastSeq: next.seq };
+    const applied = applyEvent(s, next);
+    s = { ...applied, lastSeq: next.seq, recentEvents: [next, ...applied.recentEvents].slice(0, RECENT_EVENTS) };
     next = pending[s.lastSeq + 1];
   }
   return { ...s, pending };
@@ -215,7 +226,7 @@ function applyEvent(state: RunState, e: RunEvent): RunState {
 
     case 'move_requested':
       if (!id) return state;
-      return withLive(state, id, (l) => ({ ...l, awaiting: e.data }));
+      return withLive(state, id, (l) => ({ ...l, awaiting: { ...e.data, ts: e.ts } }));
 
     case 'move_invalid':
       if (!id) return state;
