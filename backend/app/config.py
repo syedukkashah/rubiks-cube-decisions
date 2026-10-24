@@ -8,12 +8,18 @@ from dotenv import load_dotenv
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 CHAT_MODEL = "anthropic/claude-opus-5.5"
 INPUT_TOKEN_ESTIMATE = 300
+# Human-approved after the 480-input-token live probe; also the Opus planning floor.
+CHAT_PROMPT_TOKEN_LIMIT = 600
 # USD per million tokens; G1 reference prices, 2026-10-24.
 PRICES = {
     "typesafe/jev-1.13": (0.042, 0),
     "openai/gpt-6-luna-decisions": (0.10, 0),
     "cloudflare/clef": (0.24, 0),
     CHAT_MODEL: (4, 20),
+}
+INPUT_TOKEN_FLOORS = {
+    model: CHAT_PROMPT_TOKEN_LIMIT if model == CHAT_MODEL else INPUT_TOKEN_ESTIMATE
+    for model in PRICES
 }
 
 

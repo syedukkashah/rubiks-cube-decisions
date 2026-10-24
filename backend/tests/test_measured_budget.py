@@ -54,21 +54,21 @@ def save_observations(settings):
 async def test_observations_raise_reservations_and_survive_restart(settings):
     ledger = SpendLedger(settings)
     first = await ledger.reserve("run_smoke", "tr_smoke", CHAT_MODEL)
-    await ledger.settle(first, Usage(480, 11, 0, 0.00214))
+    await ledger.settle(first, Usage(720, 11, 0, 0.00214))
     assert ledger.spent_usd == Decimal("0.00214")
     before = settings.spend_ledger_path.read_bytes()
     ledger = SpendLedger(settings)
     assert settings.spend_ledger_path.read_bytes() == before
-    assert ledger.input_token_estimates[CHAT_MODEL] == 480
+    assert ledger.input_token_estimates[CHAT_MODEL] == 720
     second = await ledger.reserve("run_next", "tr_next", CHAT_MODEL)
-    assert ledger.rows[second]["cost_usd"] == 0.00512
+    assert ledger.rows[second]["cost_usd"] == 0.00608
     await ledger.settle(second, Usage())
     assert ledger.rows[second]["estimated"]
-    assert ledger.rows[second]["cost_usd"] == 0.00512
+    assert ledger.rows[second]["cost_usd"] == 0.00608
     third = await ledger.reserve("run_lower", "tr_lower", CHAT_MODEL)
     await ledger.settle(third, Usage(200, 11, 0, 0.001))
-    assert SpendLedger(settings).input_token_estimates[CHAT_MODEL] == 480
-    assert ledger.spent_usd == Decimal("0.00826")
+    assert SpendLedger(settings).input_token_estimates[CHAT_MODEL] == 720
+    assert ledger.spent_usd == Decimal("0.00922")
 
 
 def test_model_specific_estimates_keep_floor_and_retry_formula(settings):
@@ -78,7 +78,7 @@ def test_model_specific_estimates_keep_floor_and_retry_formula(settings):
         "typesafe/jev-1.13": 594,
         "openai/gpt-6-luna-decisions": 300,
         "cloudflare/clef": 483,
-        CHAT_MODEL: 480,
+        CHAT_MODEL: 600,
     }
     config = RunConfig(puzzle_ids=[f"pz_{i}" for i in range(6)])
     expected = 198 * sum(
@@ -95,8 +95,8 @@ async def test_midrun_reservation_uses_measured_tokens(settings):
     settings = replace(settings, max_spend_usd=0.0049)
     ledger = SpendLedger(settings)
     before = settings.spend_ledger_path.read_bytes()
-    # The old 300-token estimate would fit; the measured 480-token estimate does not.
-    assert per_call_cost(settings, CHAT_MODEL) < ledger.remaining
+    # The old 300-token estimate would fit; the approved Opus allowance does not.
+    assert per_call_cost(settings, CHAT_MODEL, input_tokens=300) < ledger.remaining
     with pytest.raises(BudgetExceeded, match="spend cap"):
         await ledger.reserve("run_new", "tr_new", CHAT_MODEL)
     assert settings.spend_ledger_path.read_bytes() == before
@@ -123,7 +123,7 @@ def test_run_admission_uses_measurements_without_inference(settings):
         )
         assert result.status_code == 409
         assert result.json()["error"]["details"] == {
-            "estimated_max_cost_usd": 0.8448,
+            "estimated_max_cost_usd": 0.924,
             "remaining_budget_usd": 0.7996,
         }
     assert settings.spend_ledger_path.read_bytes() == before

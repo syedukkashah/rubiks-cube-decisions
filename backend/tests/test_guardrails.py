@@ -355,7 +355,7 @@ async def test_midrun_backstops(settings, cap):
 
 def test_precheck_formula(settings):
     config = RunConfig(puzzle_ids=[f"pz_{i}" for i in range(5)])
-    assert estimate_run(settings, config) == Decimal("0.744909")
+    assert estimate_run(settings, config) == Decimal("0.942909")
     assert estimate_run(settings, config.model_copy(update={"max_retries": 0})) == (
         estimate_run(settings, config) * 30 / 33
     )

@@ -18,7 +18,7 @@ import httpx
 from app.adapters.base import UpstreamFailure
 from app.adapters.factory import real_adapter
 from app.budget import BudgetExceeded, SpendLedger
-from app.config import CHAT_MODEL, Settings
+from app.config import CHAT_MODEL, CHAT_PROMPT_TOKEN_LIMIT, Settings
 from app.engine import MOVES, SOLVED, apply_move, scramble
 from app.runner.calls import call_model
 from app.schemas import MODEL_IDS
@@ -128,9 +128,13 @@ async def run_smoke(settings, calibrate=False, transport=None, emit=print, *, di
             if result.move not in MOVES:
                 failed = True
             if model == CHAT_MODEL:
-                if result.usage.input_tokens is None or result.usage.input_tokens > 250:
-                    emit("STOP: Opus prompt_tokens missing or above 250.")
+                if (
+                    result.usage.input_tokens is None
+                    or result.usage.input_tokens > CHAT_PROMPT_TOKEN_LIMIT
+                ):
+                    emit(f"STOP: Opus prompt_tokens missing or above {CHAT_PROMPT_TOKEN_LIMIT}.")
                     failed = True
+                    break
                 if result.usage.cost is not None and result.usage.cost > 0.012:
                     emit("STOP AND ASK: Opus cost exceeds $0.012 per call.")
                     failed = True

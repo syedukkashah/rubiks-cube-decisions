@@ -34,6 +34,7 @@ from app.storage import RunStore
 @pytest.fixture
 def settings(tmp_path):
     return Settings(
+        chat_max_tokens=128,  # An affordable calibrated configuration for live mock transports.
         runs_dir=tmp_path / "runs",
         spend_ledger_path=tmp_path / "ledger.jsonl",
         recording_path=tmp_path / "recordings" / "benchmark.json",

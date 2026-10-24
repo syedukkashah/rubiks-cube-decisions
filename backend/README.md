@@ -81,12 +81,13 @@ limit Opus quality: report this configuration, measured output/reasoning average
 and truncation counts in the written analysis.
 
 **Live verification is partial:** one authorized Opus probe succeeded after the
-temperature and regex fixes, but exceeded the input-token guard. Calibration and
+temperature and regex fixes, but exceeded the former 250-token input guard. The
+human subsequently approved a 600-token guard and matching planning floor. Calibration and
 the benchmark remain paused. These are single-probe observations, not averages:
 
 | Measurement | Current value |
 |---|---|
-| Opus prompt tokens (must be ≤250) | 480; guard failed |
+| Opus prompt tokens (must be ≤600) | 480 on the previous probe; within the approved limit |
 | Opus completion / reasoning tokens per call | 11 / 0 reported on one probe; calibration pending |
 | Opus actual cost per call | $0.00214 on one probe; calibration pending |
 | Calibrated `CHAT_MAX_TOKENS` | Pending; provisional 160 |
@@ -119,7 +120,7 @@ exclude lookahead/lookbehind, so the request now uses only supported anchors,
 character classes and an optional suffix. Strict object fields and exact backend
 move validation remain in force; no invalid output is trimmed or coerced. The
 full request remains under 1,100 characters. A subsequent authorized single probe
-returned `R'` with `finish_reason: stop`; it failed only the 250-input-token guard.
+returned `R'` with `finish_reason: stop`; it failed only the former 250-input-token guard.
 Failed probes remain conservatively accounted for in the existing ledger; no
 further inference is automatically attempted.
 
@@ -145,14 +146,15 @@ Run admission estimates each model's worst case as:
 ```text
 attempts_per_trial = min(max_moves + MAX_TRIAL_RETRIES,
                          max_moves * (max_retries + 1))
-input_estimate[model] = max(300, largest saved input-token count for that model)
+input_floor[model] = 600 for Opus, 300 for Decisions
+input_estimate[model] = max(input_floor[model], largest saved input-token count for that model)
 per_call_usd = (input_estimate[model] * input_price + output_cap * output_price) / 1_000_000
 run_estimate = puzzle_count * attempts_per_trial * sum(per_model_call_cost)
 ```
 
 Prices are centralized in `app/config.py`. Decisions use output cap zero; chat
 uses the current `CHAT_MAX_TOKENS`. With no observations, the five-puzzle primary
-estimate at 160 is $0.744909. Existing ledger measurements increase it immediately;
+estimate at 160 is $0.942909. Existing ledger measurements increase it immediately;
 the baseline is not used when a larger count is already known. Run admission,
 required-session admission, next-step gates and individual call reservations all
 use the same model-specific estimates. They are restored from the ledger after
@@ -174,11 +176,11 @@ This makes retries and abandoned calls survive restart without duplicate rows.
 Before each call, the ledger checks both caps and reserves its estimated cost;
 availability checks are free and are not counted. A malformed ledger fails closed.
 The run-finished INFO line includes calls, usage spend and remaining budget.
-Both the initial 300-token allowance and the later observed maxima are estimates,
+Both the initial 600/300-token allowances and the later observed maxima are estimates,
 not guarantees about future prompts. Cube states, longer history and provider
 schema overhead can change input-token counts. Missing-cost settlement retains
 at least the reservation's input allowance; missing cost never resets an estimate
-to 300. Reported actual charges remain unchanged. Malformed saved token counts
+below its model's floor. Reported actual charges remain unchanged. Malformed saved token counts
 fail closed instead of silently lowering the estimate.
 
 ### Current prompt and budget review (2026-10-24)
@@ -189,19 +191,34 @@ is 423 / 452 characters. Character length does not establish billed token count:
 the successful probe reported 480 input tokens. Anthropic documents additional
 schema instructions for structured output; the precise overhead split was not
 returned. The compact shared wording, state fields, all 18 move definitions,
-strict schema and required short-answer line remain unchanged. We cannot verify
-that another shortening would meet 250 billed tokens without another live call.
-The 250-token smoke guard is still enforced; changing that requirement needs a
-human decision. No prompt, output-token or spend limit has been raised.
+strict schema and required short-answer line remain unchanged. On 2026-10-24 the
+human approved replacing the 250-token smoke guard with 600 and using at least
+600 input tokens for Opus budgeting. This backend override applies to the G3/G7
+input-token requirement; the full-request character limit, provisional output
+cap 160 and maximum usage spend $1.10 remain in force. Missing or excessive input
+counts stop smoke/calibration before another call.
 
 With observed input counts Jev 594, Luna 283, Clef 483 and Opus 480, planning uses
-594 / 300 / 483 / 480 (300 remains the minimum). The required warm-up plus primary
-estimate is **$1.047591864** at output cap 160, exceeding the then-remaining ledger
-budget **$0.975786466**. The session is now correctly refused before model calls.
-For illustration only, output cap 128 would yield **$0.920871864** using the same
-input estimates, before any further calibration spending or larger observations.
-This is not a calibrated recommendation: `.env` remains unchanged, and one short
-successful response does not establish the output budget needed for harder states.
+594 / 300 / 483 / 600. At this review the remaining ledger budget is $1.075786466.
+Three calibration calls at cap 512 have a planning allowance of $0.03792. Session
+estimates below allow 33 attempts per model per puzzle (30 moves plus three retries).
+
+| Calibrated output cap (illustrative) | Required 1 warm-up + 5 primary | With 2 extension puzzles | Calibration + all 8 puzzles |
+|---|---:|---:|---:|
+| 64 | $0.762472 | $1.016629 | $1.054549 |
+| 96 | $0.889192 | $1.185589 | $1.223509 |
+| 128 | $1.015912 | $1.354549 | $1.392469 |
+| 160 (provisional) | $1.142632 | $1.523509 | $1.561429 |
+
+These are conservative planning estimates at the stated input counts, not price
+quotes or expected bills; fewer calls/output tokens can cost less, while larger
+input observations can raise estimates. Usage figures exclude credit-purchase
+fees/taxes. Cap 160 currently fails required-session admission. Only cap 64 fits
+all eight puzzles plus calibration under the current remaining budget using these
+estimates; caps 96/128 fit the six required puzzles plus calibration. The optional
+extension still needs its own gate checks. Calibration must determine an adequate
+output cap; do not select a smaller cap solely to fit the budget. No calibrated
+cap is recommended yet, and no additional live call was made for this review.
 
 `.runs/` stores puzzles, snapshots, full SSE logs, live/mock provenance and internal
 token/finish metadata. Each event flushes through a temporary file and atomic
@@ -245,7 +262,7 @@ and `MOCK_MODELS=false`. Run from `backend`:
 Smoke normally sends exactly four calls, one per model, on solved-after-R. Only
 the explicit G2 compatibility probe may add a fifth. Fatal credentials/caps stop
 early. It prints the move, latency, prompt/completion/reasoning tokens, actual cost,
-finish reason and provider. Invalid moves, excessive/missing Opus prompt counts,
+finish reason and provider. Invalid moves, missing or above-600 Opus prompt counts,
 or rejected requests cause a nonzero exit. Calibration sends three seeded Opus
 calls at cap 512 and recommends `clamp(ceil(1.5 * max_tokens_used / 32) * 32, 64, 512)`.
 It does not change configuration. All attempts, including probes, use the ledger.
@@ -314,8 +331,10 @@ invalid model response, not proof of an HTTP failure.
    set the key and `MOCK_MODELS=false`, and restart. Choose the separate Run live
    action and confirm cost (`source: "live", confirm_cost: true`). Warm-up plus
    primary must pass their combined pre-check before anything starts. At the
-   provisional 160-token cap and initial 300-token estimates this requires about
-   $0.894 remaining; measured ledger counts can raise it (see review above). Successful
+   provisional 160-token cap and initial 600/300-token estimates this requires about
+   $1.131491, already above the $1.10 cap; measured ledger counts can raise it.
+   Set the human-approved calibrated output cap before attempting a live session
+   and check the updated estimate (see review above). Successful
    sessions atomically save `recordings/benchmark.json`, including puzzles, full
    timestamped event logs, run snapshots and the session's ledger cost. A skipped
    extension still permits saving the completed required steps. Failed/cancelled

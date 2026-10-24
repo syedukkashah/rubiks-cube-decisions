@@ -143,3 +143,30 @@ async def test_diagnostics_bound_messages_without_dumping_unstructured_provider_
     )
     assert len(json.loads(output[1])["message"]) == 1000
     assert "DO NOT LOG RAW" not in "\n".join(output)
+
+
+@pytest.mark.parametrize("tokens", [480, 600, 601, None])
+@pytest.mark.parametrize("calibrate", [False, True])
+async def test_approved_prompt_guard_stops_remaining_calibration_calls(settings, tokens, calibrate):
+    calls, output = [], []
+
+    def handler(request):
+        calls.append(request)
+        body = response(CHAT_MODEL).json()
+        body["usage"]["prompt_tokens"] = tokens
+        return httpx.Response(200, json=body)
+
+    result = await run_smoke(
+        settings,
+        calibrate=calibrate,
+        diagnose_opus=not calibrate,
+        transport=httpx.MockTransport(handler),
+        emit=output.append,
+    )
+    accepted = tokens is not None and tokens <= 600
+    assert result == (0 if accepted else 1)
+    assert len(calls) == (3 if calibrate and accepted else 1)
+    assert SpendLedger(settings).live_calls == len(calls)
+    if not accepted:
+        assert any("prompt_tokens missing or above 600" in line for line in output)
+        assert not any("Recommended CHAT_MAX_TOKENS=" in line for line in output)

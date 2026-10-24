@@ -7,7 +7,7 @@ import asyncio
 import json
 from decimal import Decimal
 
-from app.config import CHAT_MODEL, INPUT_TOKEN_ESTIMATE, PRICES, Settings
+from app.config import CHAT_MODEL, INPUT_TOKEN_FLOORS, PRICES, Settings
 from app.schemas import utc_now
 from app.storage import atomic_text
 
@@ -17,8 +17,10 @@ class BudgetExceeded(Exception):
 
 
 def per_call_cost(
-    settings: Settings, model_id: str, input_tokens=INPUT_TOKEN_ESTIMATE, output_tokens=None
+    settings: Settings, model_id: str, input_tokens=None, output_tokens=None
 ) -> Decimal:
+    if input_tokens is None:
+        input_tokens = INPUT_TOKEN_FLOORS[model_id]
     if output_tokens is None:
         output_tokens = settings.chat_max_tokens if model_id == CHAT_MODEL else 0
     price_in, price_out = PRICES[model_id]
@@ -41,7 +43,7 @@ def estimate_run(settings: Settings, config, input_token_estimates=None) -> Deci
                     settings,
                     model,
                     max(
-                        INPUT_TOKEN_ESTIMATE, input_token_estimates.get(model, INPUT_TOKEN_ESTIMATE)
+                        INPUT_TOKEN_FLOORS[model], input_token_estimates.get(model, 0)
                     ),
                 )
                 for model in config.model_ids
@@ -71,7 +73,7 @@ class SpendLedger:
     @property
     def input_token_estimates(self):
         """Historical high-water marks, not a guarantee about future provider overhead."""
-        estimates = dict.fromkeys(PRICES, INPUT_TOKEN_ESTIMATE)
+        estimates = dict(INPUT_TOKEN_FLOORS)
         for row in self.rows:
             model = row["model_id"]
             estimates[model] = max(estimates[model], row.get("input_tokens") or 0)
