@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Rubik's Cube Race API
-  version: 1.0.0
+  version: 1.1.0
   description: >
-    Machine-readable mirror of AGENTS.md section 5 (contract v1.0.0).
+    Machine-readable mirror of AGENTS.md section 5 (contract v1.1.0).
     If this file and AGENTS.md disagree, AGENTS.md wins until fixed.
     Nullable fields are always present with explicit null. Responses may gain
     fields in minor versions (clients ignore unknown fields); requests with
@@ -90,7 +90,14 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/RunAccepted" }
         "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
+        "409":
+          description: >
+            Conflict. In real mode also returned when the worst-case cost exceeds the
+            remaining spend budget, another live run is active, or an identical live run
+            already completed (AGENTS.md 6.1 G5, G12). The error details carry the reason.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "422": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
     get:
@@ -321,8 +328,8 @@ components:
           items: { type: string }
           description: Defaults to all four models
         max_moves: { type: integer, minimum: 1, maximum: 30, default: 30 }
-        timeout_s: { type: number, exclusiveMinimum: 0, default: 60 }
-        max_retries: { type: integer, minimum: 0, default: 2 }
+        timeout_s: { type: number, exclusiveMinimum: 0, default: 15 }
+        max_retries: { type: integer, minimum: 0, default: 1 }
         history_window: { type: integer, minimum: 0, default: 6 }
         concurrency: { type: integer, minimum: 1, maximum: 4, default: 1 }
     RunConfig:
