@@ -1,6 +1,8 @@
 """Fixed benchmark plan: explicit live opt-in, safe auto, and offline playback."""
 
 import asyncio
+import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -24,6 +26,8 @@ from app.schemas import (
     utc_now,
 )
 from app.storage import atomic_text, write_json
+
+logger = logging.getLogger(__name__)
 
 PLAN = (
     PlanStep(step="warmup", suite="warmup", count=1, seed=101),
@@ -345,8 +349,13 @@ class SessionManager:
             > self.service.ledger.remaining
         ):
             reasons.append("budget")
+        # Report mode keeps the truncation reason visible but lets it not stop the
+        # session. Truncations remain counted Opus failures; every other gate stops.
+        report_only = (
+            {"opus_truncation"} if self.settings.opus_truncation_gate == "report" else set()
+        )
         return StepGate(
-            passed=not reasons,
+            passed=not [reason for reason in reasons if reason not in report_only],
             cost_usd=float(cost),
             expected_cost_usd=float(expected),
             opus_truncation_pct=pct,
@@ -399,8 +408,17 @@ class SessionManager:
             puzzles=[p for p in self.service.puzzles.values() if p.puzzle_id in puzzle_ids],
             runs=runs,
         )
-        atomic_text(self.settings.recording_path, recording_json(recording, self.settings.api_key))
+        text = recording_json(recording, self.settings.api_key)
+        atomic_text(self.settings.recording_path, text)
         self.recording = recording
+        # A timestamped copy keeps every successful recording even if a later explicitly
+        # approved rerun replaces the primary file. Never fail a saved session over it.
+        path = self.settings.recording_path
+        stamp = re.sub(r"[^0-9A-Za-z]", "", recording.recording.recorded_at)
+        try:
+            atomic_text(path.with_name(f"{path.stem}.{stamp}{path.suffix}"), text)
+        except OSError:
+            logger.warning("Recording saved, but its timestamped backup could not be written")
 
     async def _execute(self, state):
         snapshot = state.snapshot

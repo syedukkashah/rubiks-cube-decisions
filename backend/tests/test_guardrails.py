@@ -68,7 +68,8 @@ def response(model, move="R'", cost=0.001, finish="stop", tokens=32):
 @pytest.mark.parametrize(
     "name,value",
     [
-        ("max_spend_usd", 1.1001),
+        ("max_spend_usd", 2.0001),
+        ("max_spend_usd", 5),
         ("max_spend_usd", -1),
         ("max_spend_usd", float("nan")),
         ("max_spend_usd", float("inf")),
@@ -82,11 +83,38 @@ def response(model, move="R'", cost=0.001, finish="stop", tokens=32):
         ("chat_max_tokens", True),
         ("chat_reasoning_effort", "none"),
         ("chat_reasoning_effort", "high"),
+        ("opus_truncation_gate", "off"),
+        ("opus_truncation_gate", "ignore"),
     ],
 )
 def test_settings_reject_unsafe_values(name, value):
     with pytest.raises(ValueError, match=name.upper()):
         Settings(**{name: value})
+
+
+@pytest.mark.parametrize("value", [1.10, 1.5, 2.0])
+def test_human_approved_spend_ceiling_allows_up_to_two_dollars(value):
+    # 2026-10-25 human decision: one session may run with MAX_SPEND_USD up to 2.00.
+    assert Settings(max_spend_usd=value).max_spend_usd == value
+
+
+def test_spend_ceiling_and_truncation_gate_env(monkeypatch):
+    monkeypatch.setattr("app.config.load_dotenv", lambda *a, **kw: None)
+    monkeypatch.delenv("MAX_SPEND_USD", raising=False)
+    monkeypatch.delenv("OPUS_TRUNCATION_GATE", raising=False)
+    parsed = Settings.from_env()
+    assert (parsed.max_spend_usd, parsed.opus_truncation_gate) == (1.10, "stop")
+    monkeypatch.setenv("MAX_SPEND_USD", "2.00")
+    monkeypatch.setenv("OPUS_TRUNCATION_GATE", "Report")
+    parsed = Settings.from_env()
+    assert (parsed.max_spend_usd, parsed.opus_truncation_gate) == (2.0, "report")
+    monkeypatch.setenv("MAX_SPEND_USD", "2.01")
+    with pytest.raises(ValueError, match="MAX_SPEND_USD must not exceed 2.00"):
+        Settings.from_env()
+    monkeypatch.setenv("MAX_SPEND_USD", "2.00")
+    monkeypatch.setenv("OPUS_TRUNCATION_GATE", "off")
+    with pytest.raises(ValueError, match="OPUS_TRUNCATION_GATE"):
+        Settings.from_env()
 
 
 def test_env_defaults_and_validation(monkeypatch):

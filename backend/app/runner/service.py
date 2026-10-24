@@ -320,6 +320,10 @@ class BenchmarkService:
                     "finish_reason": result.finish_reason if result is not None else None,
                     "empty_content": result.empty_content if result is not None else False,
                     "accepted": result is not None and result.move in MOVES,
+                    # Per-attempt evidence, including rejected/truncated attempts whose
+                    # latency is not part of any MoveRecord.
+                    "latency_ms": result.latency_ms if result is not None else None,
+                    "provider": result.provider if result is not None else None,
                 }
             )
             if self.store is not None:
