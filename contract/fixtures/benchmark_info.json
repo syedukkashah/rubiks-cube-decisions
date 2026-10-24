@@ -1,0 +1,41 @@
+{
+  "plan": [
+    {
+      "step": "warmup",
+      "suite": "warmup",
+      "count": 1,
+      "seed": 101,
+      "max_moves": 30,
+      "optional": false
+    },
+    {
+      "step": "primary",
+      "suite": "primary",
+      "count": 5,
+      "seed": 202,
+      "max_moves": 30,
+      "optional": false
+    },
+    {
+      "step": "extension",
+      "suite": "extension",
+      "count": 2,
+      "seed": 303,
+      "max_moves": 30,
+      "optional": true
+    }
+  ],
+  "sources": {
+    "simulated": true,
+    "live": false,
+    "replay": true
+  },
+  "auto_source": "replay",
+  "recording": {
+    "recording_id": "rec_01",
+    "recorded_at": "2026-10-25T10:12:00Z",
+    "session_id": "sess_01",
+    "trial_count": 32,
+    "total_cost_usd": 0.58
+  }
+}

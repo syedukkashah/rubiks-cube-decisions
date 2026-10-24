@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Rubik's Cube Race API
-  version: 1.1.0
+  version: 1.2.0
   description: >
-    Machine-readable mirror of AGENTS.md section 5 (contract v1.1.0).
+    Machine-readable mirror of AGENTS.md section 5 (contract v1.2.0).
     If this file and AGENTS.md disagree, AGENTS.md wins until fixed.
     Nullable fields are always present with explicit null. Responses may gain
     fields in minor versions (clients ignore unknown fields); requests with
@@ -74,6 +74,63 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Puzzle" }
         "404": { $ref: "#/components/responses/Error" }
+
+  /benchmark:
+    get:
+      operationId: getBenchmark
+      summary: What the one-click benchmark will do (AGENTS.md 5.10)
+      responses:
+        "200":
+          description: Plan, available sources and the saved recording
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BenchmarkInfo" }
+
+  /benchmark/sessions:
+    post:
+      operationId: startBenchmarkSession
+      summary: Run the whole plan (warm-up, primary, optional extension) from one request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BenchmarkSessionRequest" }
+      responses:
+        "202":
+          description: Session accepted; all runs are created up front as queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BenchmarkSession" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /benchmark/sessions/{session_id}:
+    get:
+      operationId: getBenchmarkSession
+      parameters:
+        - { name: session_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Current session state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BenchmarkSession" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /benchmark/sessions/{session_id}/cancel:
+    post:
+      operationId: cancelBenchmarkSession
+      parameters:
+        - { name: session_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Session cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BenchmarkSession" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /runs:
     post:
@@ -620,3 +677,90 @@ components:
           description: One entry per model in the run, same order as config.model_ids
           items: { $ref: "#/components/schemas/ModelStats" }
         questions_answered: { $ref: "#/components/schemas/QuestionsAnswered" }
+
+    # ---------- 5.10 ----------
+    BenchmarkSource:
+      type: string
+      enum: [simulated, live, replay]
+    BenchmarkRequestedSource:
+      type: string
+      enum: [auto, simulated, live, replay]
+    BenchmarkStep:
+      type: string
+      enum: [warmup, primary, extension]
+    PlanStep:
+      type: object
+      additionalProperties: false
+      required: [step, suite, count, seed, max_moves, optional]
+      properties:
+        step: { $ref: "#/components/schemas/BenchmarkStep" }
+        suite: { $ref: "#/components/schemas/Suite" }
+        count: { type: integer, minimum: 1 }
+        seed: { type: integer }
+        max_moves: { type: integer, minimum: 1, maximum: 30 }
+        optional: { type: boolean }
+    Recording:
+      type: object
+      additionalProperties: false
+      required: [recording_id, recorded_at, session_id, trial_count, total_cost_usd]
+      properties:
+        recording_id: { type: string }
+        recorded_at: { $ref: "#/components/schemas/Timestamp" }
+        session_id: { type: string }
+        trial_count: { type: integer, minimum: 0 }
+        total_cost_usd: { type: [number, "null"], minimum: 0 }
+    BenchmarkInfo:
+      type: object
+      additionalProperties: false
+      required: [plan, sources, auto_source, recording]
+      properties:
+        plan:
+          type: array
+          items: { $ref: "#/components/schemas/PlanStep" }
+        sources:
+          type: object
+          additionalProperties: false
+          required: [simulated, live, replay]
+          properties:
+            simulated: { type: boolean }
+            live: { type: boolean }
+            replay: { type: boolean }
+        auto_source: { enum: [simulated, replay] }
+        recording: { oneOf: [{ $ref: "#/components/schemas/Recording" }, { type: "null" }] }
+    BenchmarkSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        source: { $ref: "#/components/schemas/BenchmarkRequestedSource", default: auto }
+        speed: { type: number, minimum: 0.25, maximum: 20, default: 1.0 }
+        include_extension: { type: boolean, default: true }
+        confirm_cost: { type: boolean, default: false }
+    BenchmarkSessionRun:
+      type: object
+      additionalProperties: false
+      required: [step, suite, run_id, status]
+      properties:
+        step: { $ref: "#/components/schemas/BenchmarkStep" }
+        suite: { $ref: "#/components/schemas/Suite" }
+        run_id: { type: string }
+        status:
+          type: string
+          enum: [queued, running, completed, cancelled, failed, skipped]
+    BenchmarkSession:
+      type: object
+      additionalProperties: false
+      required: [session_id, source, requested_source, status, speed, created_at, finished_at, replay_of_session_id, recorded_at, total_cost_usd, runs]
+      properties:
+        session_id: { type: string }
+        source: { $ref: "#/components/schemas/BenchmarkSource" }
+        requested_source: { $ref: "#/components/schemas/BenchmarkRequestedSource" }
+        status: { $ref: "#/components/schemas/RunStatus" }
+        speed: { type: number }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        finished_at: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+        replay_of_session_id: { type: [string, "null"] }
+        recorded_at: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+        total_cost_usd: { type: [number, "null"], minimum: 0 }
+        runs:
+          type: array
+          items: { $ref: "#/components/schemas/BenchmarkSessionRun" }

@@ -122,11 +122,11 @@ Minimum sample: 5 primary puzzles × 4 models = 20 trials (10+ puzzles recommend
 
 ---
 
-## 5. JSON API contract (v1.1.0)
+## 5. JSON API contract (v1.2.0)
 
 The contract below is normative. Both agents implement exactly this. When `/contract/openapi.yaml` is created it must mirror this section field for field; if the two ever disagree, **this file wins until fixed**.
 
-**Changelog.** `1.1.0` (2026-10-24, human-approved, cost guardrails): run defaults `timeout_s` 60 → 15 and `max_retries` 2 → 1; `POST /runs` may return `409 conflict` when the spend pre-check fails (section 6.1). No field, type or enum changes.
+**Changelog.** `1.2.0` (2026-10-24, human-approved, one-click benchmark with record and replay): new endpoints `GET /benchmark`, `POST /benchmark/sessions`, `GET /benchmark/sessions/{session_id}`, `POST /benchmark/sessions/{session_id}/cancel` (section 5.10). Purely additive; existing endpoints and fixtures are unchanged. `1.1.0` (2026-10-24, human-approved, cost guardrails): run defaults `timeout_s` 60 → 15 and `max_retries` 2 → 1; `POST /runs` may return `409 conflict` when the spend pre-check fails (section 6.1). No field, type or enum changes.
 
 ### 5.1 Conventions
 
@@ -171,7 +171,7 @@ Every non-2xx response has this shape:
 ```json
 {
   "status": "ok",
-  "contract_version": "1.1.0",
+  "contract_version": "1.2.0",
   "api_key_configured": true
 }
 ```
@@ -470,6 +470,93 @@ choose_move(state: facelets, recent_moves: list[str], allowed_moves: list[str], 
 - **Chat completions** (`anthropic/claude-opus-5.5`): send the same state, the same 18 allowed moves and the same recent-move window, and require exactly `{"move": "R'"}` via structured-output / JSON-schema constraint where the route supports it. Total output (adaptive thinking + answer) is hard-capped with `max_tokens` at the lowest effort level, `temperature: 0`, per section 6.1 G2.
 - Validation: the returned move must be in the 18-move set. Otherwise it is an invalid output: log it, count it, retry per policy, never substitute a move. A truncated chat response (`finish_reason: "length"` or empty content) is a `malformed_response`.
 - Both adapters also return the response's `usage` (`input/prompt tokens`, `output/completion tokens`, `reasoning_tokens` if present, `cost`) to the runner for the spend ledger (6.1). This is internal only and never appears in API responses.
+
+### 5.10 One-click benchmark, record and replay (v1.2.0)
+
+The human wants to (1) preview the whole app with no API key, (2) run the real benchmark through OpenRouter **once** and save it, and (3) replay that saved benchmark as often as needed for screen recordings, with **zero** OpenRouter calls. A **benchmark session** runs the fixed plan from section 6.2 (warm-up, primary, optional extension) as ordinary runs, one after another, from a single request. All existing run endpoints (`/runs/{id}`, `/events`, `/stats`, `/cancel`) keep working unchanged on every run of a session.
+
+**Sources**
+
+| `source` | What happens | Network / spend |
+|---|---|---|
+| `simulated` | Deterministic mock players with per-model personas and realistic simulated latencies (decision models in the hundreds of ms, Opus in seconds). Same plan, same seeds. | none / $0 |
+| `live` | Real OpenRouter calls under all section 6.1 guardrails. When the required steps finish, the session is saved as **the recording**. | paid, ledger |
+| `replay` | Re-emits the saved recording as brand-new runs: same puzzles, moves, recorded `latency_ms`, confidence, invalid outputs and results, with the original gaps between events (divided by `speed`). Stats are recomputed from the copied trials, so they equal the original. | none / $0, never touches the ledger |
+
+`POST` request values: `auto` (default), `simulated`, `live`, `replay`. **`auto` never spends money**: it means `replay` if a recording exists, otherwise `simulated`.
+
+**`GET /benchmark`**: what the one-click button will do.
+
+```json
+{
+  "plan": [
+    { "step": "warmup", "suite": "warmup", "count": 1, "seed": 101, "max_moves": 30, "optional": false },
+    { "step": "primary", "suite": "primary", "count": 5, "seed": 202, "max_moves": 30, "optional": false },
+    { "step": "extension", "suite": "extension", "count": 2, "seed": 303, "max_moves": 30, "optional": true }
+  ],
+  "sources": { "simulated": true, "live": false, "replay": true },
+  "auto_source": "replay",
+  "recording": {
+    "recording_id": "rec_01",
+    "recorded_at": "2026-10-25T10:12:00Z",
+    "session_id": "sess_01",
+    "trial_count": 28,
+    "total_cost_usd": 0.58
+  }
+}
+```
+
+- `sources.simulated` is always `true`. `sources.live` is `true` only when `MOCK_MODELS=false`, a key is set, and the guardrails allow a new live session (no active live run, and no recording yet unless `ALLOW_LIVE_RERUN=true`). `sources.replay` is `true` when a recording exists.
+- `recording` is `null` when none exists. `total_cost_usd` comes from the spend ledger at record time.
+
+**`POST /benchmark/sessions`**: start the whole plan. Returns `202` with a `BenchmarkSession`.
+
+```json
+{
+  "source": "auto",
+  "speed": 1.0,
+  "include_extension": true,
+  "confirm_cost": false
+}
+```
+
+| Field | Default | Rules |
+|---|---|---|
+| `source` | `auto` | `auto` \| `simulated` \| `live` \| `replay` |
+| `speed` | `1.0` | 0.25–20. Only changes how fast events are emitted for `simulated` and `replay`. Recorded and reported `latency_ms` values are never scaled. Ignored for `live`. |
+| `include_extension` | `true` | When `false` the extension step is not created |
+| `confirm_cost` | `false` | Must be `true` for `source: "live"`, otherwise `422 validation_error`. The frontend sets it only after the human confirms the pre-check |
+
+Errors: `source: "replay"` with no recording ⇒ `409 conflict` (`details.reason: "no_recording"`). `source: "live"` ⇒ `409 conflict` with `details.reason` one of `mock_mode`, `recording_exists`, `active_run`, `budget` (the existing G5/G12 payloads), or `503 missing_api_key`. Another session already `queued`/`running` ⇒ `409 conflict` (`details.active_session_id`).
+
+```json
+{
+  "session_id": "sess_02",
+  "source": "replay",
+  "requested_source": "auto",
+  "status": "running",
+  "speed": 1.0,
+  "created_at": "2026-10-25T11:00:00Z",
+  "finished_at": null,
+  "replay_of_session_id": "sess_01",
+  "recorded_at": "2026-10-25T10:12:00Z",
+  "total_cost_usd": null,
+  "runs": [
+    { "step": "warmup", "suite": "warmup", "run_id": "run_11", "status": "completed" },
+    { "step": "primary", "suite": "primary", "run_id": "run_12", "status": "running" },
+    { "step": "extension", "suite": "extension", "run_id": "run_13", "status": "queued" }
+  ]
+}
+```
+
+- All `runs[].run_id` exist from the start (status `queued`), in plan order, so the frontend can attach to `/runs/{run_id}/events` as each becomes `running`. Runs execute strictly one after another.
+- `status` (session): `queued` \| `running` \| `completed` \| `cancelled` \| `failed`. `runs[].status` is a `RunStatus` or `skipped` (an optional step skipped because its spend pre-check failed, or the recording had no such step).
+- `replay_of_session_id` and `recorded_at` are `null` unless `source` is `replay`. `total_cost_usd` is the session's ledger spend for `live`, otherwise `null`.
+- A failed or cancelled `live` session is **not** saved as the recording. A `live` session whose required steps (warm-up, primary) completed is saved, whether or not the extension ran.
+
+**`GET /benchmark/sessions/{session_id}`**: the same `BenchmarkSession`, current state. `404 not_found` if unknown. **`POST /benchmark/sessions/{session_id}/cancel`**: stops the active run and marks the rest `cancelled`; `409 conflict` if already terminal.
+
+**Recording storage (backend).** Saved to `RECORDING_PATH` (default `backend/recordings/benchmark.json`). The file is **not** git-ignored so the human can commit it. It holds puzzles, run snapshots and event logs with timestamps, and the session's ledger total. It never contains the key, headers or prompts. A new recording replaces an older one only for a successful `live` session, and only if the guardrails allowed that session to start. Replay runs and simulated runs never overwrite it.
 
 ---
 
