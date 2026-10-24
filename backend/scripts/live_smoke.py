@@ -20,8 +20,18 @@ from app.adapters.factory import real_adapter
 from app.budget import BudgetExceeded, SpendLedger
 from app.config import CHAT_MODEL, CHAT_PROMPT_TOKEN_LIMIT, Settings
 from app.engine import MOVES, SOLVED, apply_move, scramble
+from app.puzzles import generate_scrambles
 from app.runner.calls import call_model
-from app.schemas import MODEL_IDS
+from app.schemas import MODEL_IDS, PuzzleRequest
+
+
+def warmup_state():
+    """Facelets of the session warm-up puzzle (seed 101), where Opus truncated twice at 128."""
+    return next(generate_scrambles(PuzzleRequest(suite="warmup", count=1, seed=101)))[1]
+
+
+# One-request Opus diagnosis states. The trivial state does not validate scrambled play.
+DIAGNOSIS_STATES = {"solved_after_r": lambda: apply_move(SOLVED, "R"), "warmup": warmup_state}
 
 
 def recommended_cap(tokens):
@@ -34,9 +44,22 @@ def report_failure(model, error, emit):
         emit(json.dumps({"model_id": model, "error_code": error.code, **error.diagnostics}))
 
 
-async def run_smoke(settings, calibrate=False, transport=None, emit=print, *, diagnose_opus=False):
+async def run_smoke(
+    settings,
+    calibrate=False,
+    transport=None,
+    emit=print,
+    *,
+    diagnose_opus=False,
+    diagnose_state="solved_after_r",
+):
     if calibrate and diagnose_opus:
         emit("Refusing: calibration and single-request diagnosis are separate paid steps.")
+        return 2
+    if diagnose_state not in DIAGNOSIS_STATES or (
+        diagnose_state != "solved_after_r" and not diagnose_opus
+    ):
+        emit("Refusing: alternative states are only for the one-request Opus diagnosis.")
         return 2
     if settings.mock_models or not settings.api_key:
         emit("Refusing: set MOCK_MODELS=false and configure OPENROUTER_API_KEY.")
@@ -49,7 +72,7 @@ async def run_smoke(settings, calibrate=False, transport=None, emit=print, *, di
         [(CHAT_MODEL, scramble(Random(seed), 3)[1]) for seed in (100, 101, 102)]
         if calibrate
         else [
-            (model, apply_move(SOLVED, "R"))
+            (model, DIAGNOSIS_STATES[diagnose_state]())
             for model in ([CHAT_MODEL] if diagnose_opus else MODEL_IDS)
         ]
     )
@@ -180,10 +203,20 @@ def main():
         action="store_true",
         help="One paid Opus request at current settings; no retries or compatibility probe.",
     )
+    mode.add_argument(
+        "--diagnose-opus-warmup",
+        action="store_true",
+        help="As --diagnose-opus, but on the failed warm-up state (seed 101) at CHAT_MAX_TOKENS.",
+    )
     args = parser.parse_args()
     try:
         return asyncio.run(
-            run_smoke(Settings.from_env(), args.calibrate, diagnose_opus=args.diagnose_opus)
+            run_smoke(
+                Settings.from_env(),
+                args.calibrate,
+                diagnose_opus=args.diagnose_opus or args.diagnose_opus_warmup,
+                diagnose_state="warmup" if args.diagnose_opus_warmup else "solved_after_r",
+            )
         )
     except (ValueError, OSError):
         print("Refusing: invalid settings or unreadable local accounting files.", file=sys.stderr)

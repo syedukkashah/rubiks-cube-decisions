@@ -80,20 +80,24 @@ they are never repaired. Illegal strings are rejected by the runner. The cap can
 limit Opus quality: report this configuration, measured output/reasoning averages,
 and truncation counts in the written analysis.
 
-**Live verification is partial:** one authorized Opus probe succeeded after the
-temperature and regex fixes, but exceeded the former 250-token input guard. The
-human subsequently approved a 600-token guard and matching planning floor. The first
-calibration attempt then exhausted 512 tokens on reasoning (see review below).
-The benchmark remains paused. These are single-probe observations, not averages:
+**Live verification is partial and Opus is unresolved:** one authorized Opus probe
+on the trivial solved-after-R state succeeded after the temperature and regex fixes.
+On every scrambled state tried since (3 of 3 calls), Opus spent the whole output cap
+on reasoning and returned no move (see reviews below and `OPUS_FINDINGS.md`). The
+benchmark is paused; no further paid call is approved. Observations, not averages:
 
 | Measurement | Current value |
 |---|---|
-| Opus prompt tokens (must be ≤600) | 480 on the previous probe; within the approved limit |
-| Opus completion / reasoning tokens per call | 11 / 0 reported on one probe; calibration pending |
-| Opus actual cost per call | $0.00214 on one probe; calibration pending |
-| Calibrated `CHAT_MAX_TOKENS` | Failed calibration; provisional 160 remains unvalidated |
-| Successful provider and `low`/`omit` variant | Claude Platform on AWS; low |
+| Opus prompt tokens (must be ≤600) | 480 (trivial probe), 478 (calibration), 491 (warm-up) |
+| Opus completion / reasoning tokens per call | 11 / 0 on solved-after-R; 512 / 512 and 128 / 128 (twice) on scrambled states, all `length` |
+| Opus actual cost per call | $0.00214 trivial; $0.012152 at 512; $0.004524 at 128 |
+| Calibrated `CHAT_MAX_TOKENS` | None. Calibration failed; the human-approved uncalibrated 128 failed the warm-up |
+| Successful provider and `low`/`omit` variant | Claude Platform on AWS; low (all three truncations also used it) |
 | Temperature compatibility | Omitted under G2; endpoint metadata excludes temperature (2026-10-24) |
+
+`exclude: true` omits the `reasoning` text field, but the observed OpenRouter responses
+still carried a short `reasoning_details` summary plus signature (about 2.3 KB raw).
+That text is model output, not a secret; it does not change billing or the cap.
 
 G2 allows one **smoke-only** compatibility retry after a reasoning-related 400:
 omit `reasoning`, retaining the same token cap, short-answer line and price limit.
@@ -184,7 +188,10 @@ at least the reservation's input allowance; missing cost never resets an estimat
 below its model's floor. Reported actual charges remain unchanged. Malformed saved token counts
 fail closed instead of silently lowering the estimate.
 
-### Current prompt and budget review (2026-10-24)
+### Current prompt and budget review (2026-10-24, superseded)
+
+Historical. The request sizes and budget figures in this subsection predate the
+2026-10-25 prompt revision and warm-up; the current values are in the next subsection.
 
 The corrected request measures 1,030 characters with empty history and 1,071 with
 six two-character moves, under the 1,100-character limit. Its message text alone
@@ -228,8 +235,6 @@ completion 512, reasoning 512, empty answer, `finish_reason: length`, provider
 Claude Platform on AWS, actual cost $0.012152. No remaining calibration calls ran.
 It exceeded the $0.012 per-call gate; one truncation would also exceed 20% of the
 planned three samples even if the other two succeeded. No usable cap was established.
-Accounted spend is now $0.036365534; remaining budget is $1.063634466. The required
-session at cap 160 still estimates $1.142631864 and is refused. No benchmark recording exists.
 
 The adapter sends `reasoning.effort: low` correctly. OpenRouter documents this
 [empty-answer failure when reasoning consumes max_tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#reasoning-tokens-and-max_tokens).
@@ -247,9 +252,25 @@ single-move task explicit and discourages deliberation, following Anthropic's
 All move definitions, facelet conventions, strict schema, and the exact chat-only
 short-answer line remain present. Full chat requests measure 1,058 characters with
 empty history and 1,099 with six two-character moves, within the 1,100 limit.
-This is a candidate prompt change, not a verified solution: prompt steering is
+This was a candidate prompt change, not a verified solution: prompt steering is
 soft, may affect move quality, and cannot guarantee Opus will answer within a cap.
-Real input counts and behavior under this revision have not been measured.
+
+**It did not fix the warm-up.** The human then approved one uncalibrated session at
+cap 128 (warm-up + five primary puzzles, no extension), session
+`sess_6bf8def5a89a401d9fd976a410bd7ae2`. On the warm-up (seed 101, `B2 F2 D2`,
+optimum 3) both Opus attempts used prompt 491, completion 128, reasoning 128,
+`native_finish_reason: max_tokens`, empty content, $0.004524 each. The Opus trial
+ended `error` with 0 moves; the three Decisions models each hit the 30-move limit
+unsolved. The warm-up gate failed only on `opus_truncation=100%`, and the primary run
+was cancelled before any inference. That approval is exhausted.
+
+The follow-up offline investigation (`OPUS_FINDINGS.md`) replays the recorded
+responses with `httpx.MockTransport` and re-checks the primary documentation. It
+finds no API-compatibility defect: the body is accepted and billed, effort `low`
+already is the floor, and OpenRouter ignores `reasoning.max_tokens` on adaptive-only
+Claude models. The failure is insufficient output room for the model's adaptive
+reasoning on scrambled states. No configuration within the current rules is
+evidenced to fix it, so the next step needs a human decision (see that file).
 
 Calibration now stops immediately on a truncated/empty or invalid answer, missing
 completion counts, or a sample requiring a recommended cap above 192. It never
@@ -258,11 +279,27 @@ third sample. These stops save the remaining calls; the runner's retry policy is
 unchanged. Mock transports reproduce the observed all-reasoning response and
 verify accounting and early termination; they cannot validate model behavior.
 
-No output/price/spend cap or `.env` setting was changed. Before separately approved
-live validation, stop the backend (its running process may still have the previous
-prompt loaded), use the existing calibration command, and save its output. Its
-three-call planning allowance is $0.03792 at the current 600-token input floor.
-Do not start the benchmark until calibration and the updated budget check pass.
+No output/price/spend cap or `.env` setting was changed.
+
+**Budget snapshot after the warm-up** (local ledger of the original backend worktree,
+which remains the authoritative cumulative accounting): $0.048023648 accounted across
+102 attempts, including $0.022 of conservative reservations for five early failed
+Opus requests with no returned cost; **$1.051976352 remains** under the $1.10 cap.
+Planning input tokens are Jev 627, Luna 302, Clef 504, Opus 600 (approved floor).
+Worst-case estimates, 33 attempts per model per puzzle:
+
+| Opus output cap | Required 1 warm-up + 5 primary | Primary only |
+|---:|---:|---:|
+| 64 | $0.763783812 | $0.636486510 |
+| 96 | $0.890503812 | $0.742086510 |
+| 128 | $1.017223812 | $0.847686510 |
+| 160 | $1.143943812 (refused) | $0.953286510 |
+| 192 | $1.270663812 (refused) | $1.058886510 (refused) |
+| 512 | $2.537863812 (refused) | $2.114886510 (refused) |
+
+A completed live warm-up also triggers duplicate protection: a new session repeating
+it needs a documented `ALLOW_LIVE_RERUN=true` decision. A fresh checkout starts with
+an empty ledger; reconcile it with the cumulative accounting before any paid step.
 
 `.runs/` stores puzzles, snapshots, full SSE logs, live/mock provenance and internal
 token/finish metadata. Each event flushes through a temporary file and atomic
@@ -357,6 +394,18 @@ compatibility fallback, or calibrate. Mock/key/budget checks still apply and the
 attempt goes into the existing ledger. Save the output and review it before
 authorizing further calls. A diagnostic success does not guarantee every future
 provider call will succeed. This probe is not a benchmark recording.
+
+The solved-after-R state is trivial (Opus answered with 0 reasoning tokens) and does
+not validate scrambled play. To diagnose the scrambled-state truncation instead,
+a separately approved probe can target the exact failed warm-up puzzle (seed 101):
+
+```powershell
+.\.venv\Scripts\python.exe scripts/live_smoke.py --diagnose-opus-warmup
+```
+
+It has the same one-request limits and checks, and uses the configured
+`CHAT_MAX_TOKENS` (64–512). It never recommends a cap. Run it only with the exact
+approved settings and request count; see `OPUS_FINDINGS.md` for the proposal.
 
 Typical clues: HTTP 400/422 points to request validation; 403 to access/policy;
 404/503 can indicate no matching route; 429 to rate limits; 5xx to upstream

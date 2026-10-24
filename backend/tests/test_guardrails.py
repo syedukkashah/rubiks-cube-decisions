@@ -129,6 +129,9 @@ async def test_capped_bodies_and_shared_prompt(settings):
             "max_price": {"prompt": 4, "completion": 20},
         }
         assert "thinking" not in chat
+        # OpenRouter maps both verbosity and reasoning_effort to output_config.effort;
+        # verbosity wins if both are sent, so neither may silently override effort low.
+        assert "verbosity" not in chat and "reasoning_effort" not in chat
         assert chat["messages"][0]["content"] == (
             INSTRUCTIONS + "\n" + SHORT_ANSWER + "\n" + json.dumps(CRITERIA, separators=(",", ":"))
         )
