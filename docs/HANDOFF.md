@@ -133,3 +133,12 @@ The human approved the frontend's CONTRACT-CHANGE request (answered "approve" an
 **Backend (Codex), add to the one-click benchmark task:** for `live` sessions only, after each step finishes evaluate the four gates from 5.10 (cost vs 1.5x the expected cost with env-overridable per-step expected costs `EXPECTED_COST_WARMUP=0.03`, `EXPECTED_COST_PRIMARY=0.33`, `EXPECTED_COST_EXTENSION=0.20`; Opus truncation over 20%; run aborted; next step's worst-case pre-check vs remaining budget), fill `runs[].gate`, auto-start the next step when it passes and otherwise stop with `stop_reason: "gate"` per the two stop rules (before a required step: remaining runs `cancelled`, session `failed`, no recording; before the extension only: extension `skipped`, session `completed`, recording saved). Track Opus truncations per step (count calls ending `finish_reason: "length"` or empty content, G4/G5 data). `gate` is always `null` for simulated and replay, and `stop_reason` null unless a gate stopped it. Offline tests: each reason fires alone, a pass continues, both stop rules, null for simulated/replay.
 
 **Frontend (Claude Code):** go ahead with the gate chip per step and the "Stopped at gate" notice; use the two fixtures. Display `gate` values only.
+
+## 2026-10-25 orchestrator -> backend: human-approved $2 live session
+
+The human decided (2026-10-25) to spend up to **$2.00 total** on one real live session and to save the recording so every later run replays it. This overrides the $1.20 / `MAX_SPEND_USD=1.10` ceiling for this one session only; the 1.10 default stays.
+
+- Evidence: a single paid probe at `CHAT_MAX_TOKENS=512` on the failed warm-up state (seed 101) returned a valid move (`D2`) with 266 completion tokens (255 reasoning), $0.007284. At cap 128 Opus truncated twice, so the cap must go up.
+- Backend work: allow `MAX_SPEND_USD` up to 2.00 (default unchanged), pick the largest affordable `CHAT_MAX_TOKENS` (at most 384), add a `report` mode for the Opus truncation gate (default `stop`), keep recording/replay behaviour, `ALLOW_LIVE_RERUN=true` only for the run, then back to false.
+- Not changed: no fallback models, no oracle moves, no coercion of invalid output, cap above 512 still forbidden. Truncations stay counted as Opus failures; the write-up must disclose the cap and the truncations.
+- Root `AGENTS.md` still says 1.10 for the spend cap; update it after the session if the human wants the spec to match.
