@@ -71,7 +71,7 @@ class ErrorEnvelope(Schema):
 
 class Health(Schema):
     status: Literal["ok"] = "ok"
-    contract_version: Literal["1.0.0"] = "1.0.0"
+    contract_version: Literal["1.1.0"] = "1.1.0"
     api_key_configured: bool
 
 
@@ -120,8 +120,8 @@ class RunConfig(Schema):
         default_factory=lambda: list(MODEL_IDS)
     )
     max_moves: Annotated[StrictInt, Field(ge=1, le=30)] = 30
-    timeout_s: Annotated[float, Field(gt=0, strict=True)] = 60
-    max_retries: Annotated[StrictInt, Field(ge=0)] = 2
+    timeout_s: Annotated[float, Field(gt=0, strict=True)] = 15
+    max_retries: Annotated[StrictInt, Field(ge=0)] = 1
     history_window: Annotated[StrictInt, Field(ge=0)] = 6
     concurrency: Annotated[StrictInt, Field(ge=1, le=4)] = 1
 

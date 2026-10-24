@@ -8,6 +8,7 @@ class EventLog:
         self.snapshot = snapshot
         self.events: list[Event] = []
         self.changed = asyncio.Event()
+        self.on_event = None
 
     def emit(self, event_type: str, data: dict, trial_id: str | None = None):
         event = Event(
@@ -22,6 +23,8 @@ class EventLog:
         event = Event.model_validate_json(event.model_dump_json())
         self.events.append(event)
         self.snapshot.last_seq = event.seq
+        if self.on_event is not None:
+            self.on_event()
         self.changed.set()
 
     async def stream(self, after_seq: int, heartbeat_s: float = 10):

@@ -10,13 +10,13 @@ from app.schemas import ErrorEnvelope, Event, RunSnapshot, StatsResponse
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
     def no_network(request):
         raise AssertionError("Mock mode must not make network requests")
 
     with TestClient(
         create_app(
-            Settings(mock_models=True),
+            Settings(mock_models=True, runs_dir=tmp_path / "runs"),
             transport=httpx.MockTransport(no_network),
         )
     ) as client:
@@ -27,7 +27,7 @@ def test_mock_pipeline_and_resume(client):
     health = client.get("/api/v1/health")
     assert health.json() == {
         "status": "ok",
-        "contract_version": "1.0.0",
+        "contract_version": "1.1.0",
         "api_key_configured": False,
     }
     assert health.headers["content-type"] == "application/json; charset=utf-8"
@@ -102,8 +102,16 @@ def test_reject_invalid_runs(client, field, value):
     ErrorEnvelope.model_validate(response.json())
 
 
-def test_real_mode_requires_key():
-    with TestClient(create_app(Settings())) as client:
+def test_real_mode_requires_key(tmp_path):
+    with TestClient(
+        create_app(
+            Settings(
+                mock_models=False,
+                runs_dir=tmp_path / "runs",
+                spend_ledger_path=tmp_path / "ledger.jsonl",
+            )
+        )
+    ) as client:
         response = client.post("/api/v1/runs", json={"puzzle_ids": ["pz_missing"]})
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "missing_api_key"
