@@ -1,9 +1,9 @@
-// Types for the JSON API contract v1.0.0 (AGENTS.md section 5).
+// Types for the JSON API contract v1.3.0 (AGENTS.md section 5).
 // Field names, nullability and enums mirror the contract exactly; nothing here is invented.
 // Every response passes through ./normalize.ts, which drops unknown fields and turns
 // missing nullable fields into explicit nulls.
 
-export const CONTRACT_VERSION = '1.0.0';
+export const CONTRACT_VERSION = '1.3.0';
 
 /** HTM face-turn metric, AGENTS.md 4.1. Display-only here: the backend validates moves. */
 export type Move = string;
@@ -31,6 +31,12 @@ export interface ErrorBody {
 
 export interface ErrorEnvelope {
   error: ErrorBody;
+}
+
+/** `details` of the 409 conflict POST /runs returns when the spend pre-check fails (5.6, 6.1 G5). */
+export interface SpendCapDetails {
+  estimated_max_cost_usd: number;
+  remaining_budget_usd: number;
 }
 
 // ---------- 5.3 health ----------
@@ -107,13 +113,25 @@ export interface CreateRunRequest {
   concurrency?: number;
 }
 
-/** Contract defaults for POST /runs (AGENTS.md 5.6 table). */
+/** Contract defaults for POST /runs (AGENTS.md 5.6 table, v1.1.0 cost guardrails). */
 export const RUN_DEFAULTS = {
   max_moves: 30,
-  timeout_s: 60,
-  max_retries: 2,
+  timeout_s: 15,
+  max_retries: 1,
   history_window: 6,
   concurrency: 1,
+} as const;
+
+/**
+ * Bounds the backend accepts for POST /runs; anything outside is a 422 (5.6).
+ * timeout_s and max_retries are capped by the backend's MAX_TIMEOUT_S / MAX_RETRIES_CAP
+ * (6.1 G1 defaults) to limit API cost. Used for input limits only; the backend validates.
+ */
+export const RUN_LIMITS = {
+  max_moves: { min: 1, max: 30 },
+  timeout_s: { min: 1, max: 20 },
+  max_retries: { min: 0, max: 1 },
+  concurrency: { min: 1, max: 4 },
 } as const;
 
 export interface CreateRunResponse {
@@ -286,6 +304,84 @@ export interface RunStats {
   run_status: RunStatus;
   models: ModelStats[];
   questions_answered: QuestionsAnswered;
+}
+
+// ---------- 5.10 one-click benchmark, record and replay ----------
+
+export type BenchmarkSource = 'simulated' | 'live' | 'replay';
+export type BenchmarkRequestedSource = 'auto' | BenchmarkSource;
+export type BenchmarkStep = 'warmup' | 'primary' | 'extension';
+
+export interface PlanStep {
+  step: BenchmarkStep;
+  suite: Suite;
+  count: number;
+  seed: number;
+  max_moves: number;
+  optional: boolean;
+}
+
+export interface Recording {
+  recording_id: string;
+  recorded_at: Timestamp;
+  session_id: string;
+  trial_count: number;
+  total_cost_usd: number | null;
+}
+
+export interface BenchmarkInfo {
+  plan: PlanStep[];
+  sources: Record<BenchmarkSource, boolean>;
+  auto_source: 'simulated' | 'replay';
+  recording: Recording | null;
+}
+
+export interface CreateSessionRequest {
+  source?: BenchmarkRequestedSource;
+  speed?: number;
+  include_extension?: boolean;
+  confirm_cost?: boolean;
+}
+
+/** Speed bounds for POST /benchmark/sessions (5.10); only paces simulated and replay sessions. */
+export const SESSION_SPEED = { min: 0.25, max: 20, default: 1 } as const;
+
+export type SessionRunStatus = RunStatus | 'skipped';
+
+/** 6.2 gate a live step can fail (5.10 "Step gates", v1.3.0). Thresholds live in the backend. */
+export type GateReason = 'cost_over_expected' | 'opus_truncation' | 'run_aborted' | 'budget';
+
+export interface StepGate {
+  passed: boolean;
+  cost_usd: number;
+  expected_cost_usd: number;
+  opus_truncation_pct: number | null;
+  reasons: (GateReason | string)[];
+}
+
+export interface BenchmarkSessionRun {
+  step: BenchmarkStep;
+  suite: Suite;
+  run_id: string;
+  status: SessionRunStatus;
+  /** null until a live step is evaluated; always null for simulated and replay. */
+  gate: StepGate | null;
+}
+
+export interface BenchmarkSession {
+  session_id: string;
+  source: BenchmarkSource;
+  requested_source: BenchmarkRequestedSource;
+  status: RunStatus;
+  speed: number;
+  created_at: Timestamp;
+  finished_at: Timestamp | null;
+  replay_of_session_id: string | null;
+  recorded_at: Timestamp | null;
+  total_cost_usd: number | null;
+  /** "gate" when a failed step gate stopped a live session before its next step. */
+  stop_reason: 'gate' | null;
+  runs: BenchmarkSessionRun[];
 }
 
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'cancelled', 'failed'];

@@ -1,7 +1,7 @@
 # Rubik's Cube Race — frontend
 
 React 18 + Vite + TypeScript (strict) UI for the benchmark described in `../AGENTS.md`.
-It talks only to the backend's `/api/v1` (contract v1.0.0, AGENTS.md section 5). It never calls
+It talks only to the backend's `/api/v1` (contract v1.3.0, AGENTS.md section 5). It never calls
 OpenRouter, never holds an API key, and never computes moves, solved state or statistics. It
 renders what the backend reports.
 
@@ -17,7 +17,7 @@ cp .env.example .env      # then fill in VITE_STUDENT_NAME and VITE_STUDENT_ROLL
 |---|---|---|
 | `VITE_API_BASE_URL` | `/api/v1` | API base path. The dev server proxies `/api` to `BACKEND_URL`. |
 | `VITE_USE_MOCKS` | `false` | `true` replays the recorded fixture run in `/contract/fixtures`. No backend needed. |
-| `VITE_MOCK_SCENARIO` | `default` | Mock only. `missing_api_key` simulates a backend without `OPENROUTER_API_KEY`. |
+| `VITE_MOCK_SCENARIO` | `default` | Mock only. `default`: a live recording exists, so one click replays it. `no_recording`: no recording and no key, so one click simulates. `live_ready`: key set, no recording; "Run live once" is offered and saves a recording. `gate_stop`: like `live_ready`, but the warm-up gate fails and stops the session. `missing_api_key`: backend has no `OPENROUTER_API_KEY` (503). `spend_cap`: the spend pre-check fails (409 with cost details). `run_abort`: a custom run is aborted mid-run with "Live spend cap reached" and ends `failed`. |
 | `VITE_STUDENT_NAME` / `VITE_STUDENT_ROLL` | (empty) | Identity badge shown on every screen. If either is empty, the badge shows a red warning instead. |
 | `BACKEND_URL` | `http://localhost:8000` | Dev-server proxy target. It is not exposed to the browser. |
 
@@ -36,17 +36,57 @@ Switching between mock data and the live backend changes only `VITE_USE_MOCKS`. 
 
 ## Views
 
-- **`/` Benchmark**
-  - Controls: generate puzzles (`POST /puzzles`) or pick stored ones, choose models and fairness
-    settings, then `POST /runs`. The run opens at `/?run=<run_id>`, which survives a reload.
-  - Run status bar: progress, stream state, run picker and cancel.
-  - Scrambled cube for the current or focused puzzle.
-  - One lane per model: live cube, current move, a "waiting" state on `move_requested`, a flag on
-    `move_invalid`, move history and a result banner.
-  - Results-by-puzzle matrix.
-  - Statistics dashboard from `GET /runs/{id}/stats`.
-- **`/slide?run=<run_id>`**: a full-screen benchmark slide for the end of the recording. Without
-  `?run`, it uses the newest completed run.
+The header on every view has the nav (Setup · Race · Results · Slide), the stream state, the
+session source chip, the mock/backend chip and the student identity badge.
+
+- **Setup (`/`)**
+  - **Run full benchmark**: one click runs the whole plan from `GET /benchmark` (warm-up 1 puzzle,
+    primary 5, optional extension 2, all × 4 models) via `POST /benchmark/sessions` with
+    `source: "auto"` and a playback speed of 1×, 2× or 4×. `auto` never spends: the backend replays
+    the saved live recording if there is one, otherwise it simulates. The panel says which before
+    you click.
+  - **Run live once…**: only shown when the backend reports `sources.live`. It needs an explicit
+    acknowledgement and sends `source: "live", confirm_cost: true`. A completed live session is
+    saved as the recording, and every later "Run full benchmark" replays it with no OpenRouter calls.
+  - **Advanced · one custom run**: suite, count, seed, scramble length, models and fair-play limits,
+    through `POST /puzzles` + `POST /runs`.
+  - Previous runs from `GET /runs`, and the last one-click session in this browser.
+- **Race (`/?session=<id>` or `/?run=<id>` while running)**: session steps with their gates, trial
+  progress, clock and cancel; the shared scramble and mini-matrix; one lane per model (live cube,
+  current move, latency, moves-used bar, move chips, timeout gauge or verdict); the event stream.
+  A session switches the view from step to step by itself.
+- **Results (when the run or session is over)**: final cube per model and puzzle, results matrix,
+  reliability, five metric cards, the assignment questions, JSON export and "Present slide".
+  A session opens on its primary run; the step list picks any other.
+- **Slide (`/slide?session=<id>` or `/slide?run=<id>`)**: the 1920×1080 presentation slide, scaled
+  to the window. Without a parameter it uses the newest completed run.
+
+`?view=race|results` forces either stage, e.g. to look at the lanes of a finished run.
+
+The source chip never presents a replay as live: "Replay of live recording · <date>", "Live ·
+OpenRouter" or "Simulated · no OpenRouter calls". A replay shows the recorded latencies.
+
+## Recording workflow
+
+1. Without a key, "Run full benchmark" simulates. Use this to check the UI.
+2. Add `OPENROUTER_API_KEY` to `backend/.env`, run the backend's smoke and calibration checks, then
+   use "Run live once…". The backend checks each step's gate (cost against expected, Opus
+   truncations, aborts, budget) and stops before the next step if one fails.
+3. From then on, every "Run full benchmark" replays that one live session at the chosen speed, as
+   often as you want to record, with no OpenRouter calls.
+
+## Cost guardrails (contract v1.1.0)
+
+- Run defaults are `timeout_s: 15` and `max_retries: 1` (`RUN_DEFAULTS` in `src/api/types.ts`).
+- The run controls limit timeout to 1–20 s and retries to 0–1, the backend's `MAX_TIMEOUT_S` and
+  `MAX_RETRIES_CAP` defaults (AGENTS.md 6.1 G1). Out-of-range values block the start button
+  instead of earning a 422.
+- A `409 conflict` from `POST /runs` with `details.estimated_max_cost_usd` and
+  `details.remaining_budget_usd` shows "Run blocked by spend cap" with both amounts. Without those
+  details it falls back to the generic conflict notice. The frontend only displays these figures; it
+  never estimates cost.
+- A run-level `error` event followed by `run_finished` with status `failed` (e.g. "Live spend cap
+  reached", "insufficient credits") is shown in the run status bar.
 
 ## How live state works
 
@@ -72,8 +112,10 @@ events. It covers solved, move-limit and error outcomes, illegal and malformed o
 retry, a mid-run snapshot checkpoint, and stats after every finished trial. The facelet strings and
 BFS optima were generated offline with a cube model that is not part of this frontend.
 
-In mock mode, settings are sent and validated, but playback is always this recording. Mock runs are
-kept in `localStorage`, so a reload or a new tab still finds them.
+In mock mode, settings are sent and validated, but playback is always this recording. A one-click
+session chains one replay per plan step; live sessions add passing gates (or the failing gate from
+`benchmark_session_gate_stop.json`). Mock runs, sessions and the mock recording are kept in
+`localStorage`, so a reload or a new tab still finds them.
 
 
 ## Contract notes for the backend (proposed `docs/HANDOFF.md` entries)

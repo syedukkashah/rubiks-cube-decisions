@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, describeError } from './errors';
 import { createHttpClient, openEventSource } from './httpClient';
-import { normalizeEvent, normalizeRunSnapshot, normalizeTrial } from './normalize';
+import { fixtures } from '../mocks/fixtures';
+import { normalizeBenchmarkInfo, normalizeEvent, normalizeRunSnapshot, normalizeSession, normalizeTrial } from './normalize';
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -43,6 +44,32 @@ describe('normalizers', () => {
     const s = normalizeRunSnapshot({ run_id: 'r', status: 'running', trials: [{ trial_id: 'b' }, { trial_id: 'a' }] });
     expect(s.trials.map((t) => t.trial_id)).toEqual(['b', 'a']);
     expect(s.finished_at).toBeNull();
+  });
+});
+
+describe('benchmark session normalizers (contract v1.3.0)', () => {
+  it('reads GET /benchmark and never reports simulation as unavailable', () => {
+    const info = normalizeBenchmarkInfo(fixtures.benchmarkInfo);
+    expect(info.plan.map((p) => p.step)).toEqual(['warmup', 'primary', 'extension']);
+    expect(info.sources.simulated).toBe(true);
+    expect(normalizeBenchmarkInfo({ sources: { simulated: false } }).sources.simulated).toBe(true);
+  });
+
+  it('reads a session with no gates and one stopped at a gate', () => {
+    const ok = normalizeSession(fixtures.benchmarkSession);
+    expect(ok.stop_reason).toBeNull();
+    expect(ok.runs.every((r) => r.gate === null)).toBe(true);
+
+    const stopped = normalizeSession(fixtures.benchmarkSessionGateStop);
+    expect(stopped.stop_reason).toBe('gate');
+    const failed = stopped.runs.find((r) => r.gate && !r.gate.passed);
+    expect(failed?.gate?.reasons.length).toBeGreaterThan(0);
+  });
+
+  it('drops unknown run statuses and gate reasons it cannot read', () => {
+    const s = normalizeSession({ session_id: 's', runs: [{ step: 'primary', run_id: 'r', status: 'exploded', gate: 'nope' }] });
+    expect(s.runs[0]?.gate).toBeNull();
+    expect(s.stop_reason).toBeNull();
   });
 });
 

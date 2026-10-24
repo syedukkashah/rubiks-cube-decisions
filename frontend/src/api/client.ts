@@ -1,4 +1,7 @@
 import type {
+  BenchmarkInfo,
+  BenchmarkSession,
+  CreateSessionRequest,
   CancelRunResponse,
   CreatePuzzlesRequest,
   CreateRunRequest,
@@ -37,6 +40,11 @@ export interface ApiClient {
   getRun(runId: string): Promise<RunSnapshot>;
   cancelRun(runId: string): Promise<CancelRunResponse>;
   getStats(runId: string): Promise<RunStats>;
+  // 5.10 one-click benchmark sessions
+  getBenchmark(): Promise<BenchmarkInfo>;
+  createSession(req: CreateSessionRequest): Promise<BenchmarkSession>;
+  getSession(sessionId: string): Promise<BenchmarkSession>;
+  cancelSession(sessionId: string): Promise<BenchmarkSession>;
   /** Opens GET /runs/{id}/events replaying every event with seq > afterSeq. Returns a close function. */
   subscribeEvents(runId: string, afterSeq: number, handlers: EventStreamHandlers): () => void;
 }

@@ -1,0 +1,10 @@
+{
+  "error": {
+    "code": "conflict",
+    "message": "Estimated worst-case cost exceeds the remaining spend budget",
+    "details": {
+      "estimated_max_cost_usd": 1.67,
+      "remaining_budget_usd": 0.85
+    }
+  }
+}

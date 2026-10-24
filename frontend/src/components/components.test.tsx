@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { finalSnapshot, finalStats } from '../test/fixtureData';
 import { CubeNet } from './CubeNet';
 import { IdentityBadge } from './IdentityBadge';
+import { QuestionsAnswered } from './QuestionsAnswered';
 import { MoveHistory } from './MoveHistory';
 import { ResultBanner } from './ResultBanner';
 import { StatsDashboard } from './StatsDashboard';
@@ -80,11 +81,12 @@ describe('StatsDashboard', () => {
   });
 
   it('answers the assignment questions from questions_answered', () => {
-    render(<StatsDashboard stats={finalStats} error={null} loading={false} onRetry={() => undefined} />);
-    expect(screen.getByText('Fastest at making decisions').closest('.answer')).toHaveTextContent('Cloudflare Clef');
-    expect(screen.getByText('Highest solve rate').closest('.answer')).toHaveTextContent('Jev 1.13');
+    render(<QuestionsAnswered stats={finalStats} />);
+    expect(screen.getByText('Q1 · Fastest at making decisions').closest('.answer')).toHaveTextContent('Cloudflare Clef');
+    expect(screen.getByText('Q2 · Highest solve rate').closest('.answer')).toHaveTextContent('Jev 1.13');
     expect(screen.getByText(/Shortest solutions/).closest('.answer')).toHaveTextContent('Claude Opus 5.5');
     expect(screen.getByText(/Did the fastest model/).closest('.answer')).toHaveTextContent('No');
+    expect(screen.getByText(/What would you deploy/).closest('.answer')).toHaveClass('answer--open');
   });
 
   it('marks partial stats and shows null metrics as dashes', () => {
@@ -104,7 +106,8 @@ describe('IdentityBadge', () => {
     render(<IdentityBadge name="Ada Lovelace" roll="21K-1234" />);
     const badge = screen.getByTestId('identity-badge');
     expect(badge).toHaveTextContent('Ada Lovelace');
-    expect(badge).toHaveTextContent('Roll No. 21K-1234');
+    expect(badge).toHaveTextContent('21K-1234');
+    expect(badge).toHaveAccessibleName('Student Ada Lovelace, roll number 21K-1234');
   });
 
   it('warns loudly when identity is not configured', () => {

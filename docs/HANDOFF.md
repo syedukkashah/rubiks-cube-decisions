@@ -63,6 +63,40 @@ The human approved a new interface design. Rebuild `/frontend` to match it. Comm
 - Update the component tests for the new markup and keep the existing coverage (reducer ordering, snapshot+resume, banner states, stats from fixtures, identity badge on every view). `npm test` and `npm run build` must be green.
 - Stay inside `/frontend`. Log any contract gap here.
 
+## 2026-10-24 Claude Code → Codex
+
+Frontend adapted to contract v1.1.0 (cost guardrails, AGENTS.md 5.6 and 6.1 G9). `/frontend` only.
+
+- **What changed**
+  - `RUN_DEFAULTS` now has `timeout_s: 15` and `max_retries: 1`, and `CONTRACT_VERSION` is `1.1.0`.
+  - The run controls cap timeout at 1–20 s and retries at 0–1. These are the `MAX_TIMEOUT_S` /
+    `MAX_RETRIES_CAP` defaults from G1. Out-of-range values block the start button instead of
+    being sent.
+  - A `409 conflict` on `POST /runs` with numeric `details.estimated_max_cost_usd` and
+    `details.remaining_budget_usd` shows "Run blocked by spend cap" with both amounts. Without them,
+    the generic conflict notice is shown. The frontend never estimates cost.
+  - A run-level `error` event followed by `run_finished(failed)` is shown in the run status bar,
+    e.g. "Live spend cap reached", "insufficient credits".
+- **Endpoints and fields touched:** `POST /runs` request defaults and the 409 `details`;
+  `GET /health` `contract_version`; SSE `error` and `run_finished`. Nothing else.
+- **Not blocking, but needs a decision or follow-up:**
+  1. ~~The G9 `contract:` commit has not landed.~~ Landed in 9838ef3; the mock now reads
+     `contract_version` from `/contract/fixtures/health.json` again.
+  2. **The recorded run in `/contract/fixtures` uses a config v1.1.0 rejects.** It was recorded with
+     `timeout_s: 60` and `max_retries: 2`, which v1.1.0 would now answer with 422. One trial error
+     message also says "timeout_s (60 s) on 3 attempts". G9 keeps shape-only fixtures unchanged, so
+     this is cosmetic. Consider re-recording with the v1.1.0 defaults in the contract commit.
+  3. **No shared fixture for the spend-cap 409.** The frontend keeps a local copy at
+     `frontend/src/mocks/fixtures/error_spend_cap.json` (the 5.6 example values). Please add one to
+     `/contract/fixtures` so backend tests and frontend mock mode share it.
+  4. **Proposal (additive, needs human approval):** expose the effective `MAX_TIMEOUT_S` and
+     `MAX_RETRIES_CAP` (e.g. on `GET /health`). The frontend hard-codes the G1 defaults 20 and 1, so
+     if the backend env changes them, the UI limits drift. The backend still returns 422 in that
+     case, so nothing breaks.
+  5. **Proposal (additive, needs human approval):** add an optional `error: {code, message} | null`
+     to the run snapshot (`GET /runs/{id}`). The run-level abort reason only arrives as a live SSE
+     `error` event. After a page reload of a failed run, the UI can only say "No reason available".
+
 ## 2026-10-24 orchestrator -> backend (Codex): one-click benchmark, record and replay (contract v1.2.0)
 
 The human wants to preview the whole UI without a key, then run the real benchmark through OpenRouter **once**, save it, and replay it for screen recordings with **zero** OpenRouter calls. Contract is now **v1.2.0** (additive): AGENTS.md **section 5.10**, `/contract/openapi.yaml` (`/benchmark`, `/benchmark/sessions`, `/benchmark/sessions/{id}`, `.../cancel`) and fixtures `benchmark_info.json`, `benchmark_session.json`. `git merge main` first (health fixture now says 1.2.0).
