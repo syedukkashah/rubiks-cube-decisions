@@ -56,7 +56,7 @@ limit to $1.10 as the independent account-side backstop. Never raise the code ca
 ## Opus request and prompt
 
 The chosen provisional G2 variant is **effort `low`**, with `exclude: true`,
-`max_tokens: 160`, `temperature: 0`, strict JSON output and provider limits
+`max_tokens: 160`, strict JSON output and provider limits
 `max_price: {prompt: 4, completion: 20}` (USD per million tokens).
 Opus always thinks; excluding thinking only hides its text and does not remove its
 cost. No `none`, manual thinking budget, alternative model or invented confidence
@@ -89,14 +89,25 @@ Record these after the human-run smoke/calibration steps:
 | Opus actual cost per call | Pending calibration |
 | Calibrated `CHAT_MAX_TOKENS` | Pending; provisional 160 |
 | Successful provider and `low`/`omit` variant | Pending; configured low |
-| Temperature compatibility | Pending; temperature 0 retained |
+| Temperature compatibility | Omitted under G2; endpoint metadata excludes temperature (2026-10-24) |
 
 G2 allows one **smoke-only** compatibility retry after a reasoning-related 400:
 omit `reasoning`, retaining the same token cap, short-answer line and price limit.
 The script prints the outcome and instructs you to set `CHAT_REASONING_EFFORT=omit`
 if that probe succeeds; it never edits `.env`. Normal benchmark requests never
-retry a 400. If both variants fail, stop and ask. A temperature-related 400 is
-reported for review; no live evidence justifies dropping temperature yet.
+retry a 400. If both variants fail, stop and ask.
+
+**Temperature compatibility fix (2026-10-24):** the human-run Opus diagnostic
+returned HTTP 404, `No endpoints found that can handle the requested parameters`.
+The public [Opus endpoint metadata](https://openrouter.ai/api/v1/models/anthropic/claude-opus-5.5/endpoints)
+lists no endpoint supporting `temperature`. Under OpenRouter's
+[required-parameter routing](https://openrouter.ai/docs/guides/routing/provider-selection#requiring-providers-to-support-all-parameters),
+our `temperature: 0` therefore excludes every listed endpoint. Following the G2
+exception, the adapter now omits temperature. It retains `require_parameters: true`,
+the same strict schema, low reasoning effort, token cap and price limits.
+Offline tests cover routing against the advertised parameter set. Successful live
+inference after this fix is still pending; no token/provider response has yet
+confirmed compatibility of the remaining settings.
 
 Documentation used for the request shape and usage accounting:
 

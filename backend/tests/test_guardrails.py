@@ -122,7 +122,7 @@ async def test_capped_bodies_and_shared_prompt(settings):
         decision = real_adapter(MODEL_IDS[0], client, settings).build_request(
             SOLVED, ["R"] * 6, list(MOVES)
         )
-        assert chat["max_tokens"] == 160 and chat["temperature"] == 0
+        assert chat["max_tokens"] == 160 and "temperature" not in chat
         assert chat["reasoning"] == {"effort": "low", "exclude": True}
         assert chat["provider"] == {
             "require_parameters": True,
@@ -141,6 +141,47 @@ async def test_capped_bodies_and_shared_prompt(settings):
             SOLVED, ["R'"] * 6, list(MOVES)
         )
         assert len(json.dumps(worst)) <= 1100
+
+
+@pytest.mark.parametrize("effort", ["low", "omit"])
+async def test_opus_request_matches_endpoint_parameters(settings, effort):
+    # Anthropic endpoint's advertised parameters, checked 2026-10-24 at
+    # https://openrouter.ai/api/v1/models/anthropic/claude-opus-5.5/endpoints
+    supported = {
+        "reasoning",
+        "include_reasoning",
+        "max_tokens",
+        "stop",
+        "tool_choice",
+        "tools",
+        "structured_outputs",
+        "response_format",
+        "verbosity",
+        "reasoning_effort",
+    }
+
+    def router(request):
+        body = json.loads(request.content)
+        assert body["provider"] == {
+            "require_parameters": True,
+            "max_price": {"prompt": 4, "completion": 20},
+        }
+        unsupported = set(body) - {"model", "messages", "provider"} - supported
+        if unsupported:
+            return httpx.Response(
+                404,
+                json={
+                    "error": {
+                        "message": "No endpoints found that can handle the requested parameters."
+                    }
+                },
+            )
+        return response(CHAT_MODEL)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(router)) as client:
+        adapter = real_adapter(CHAT_MODEL, client, replace(settings, chat_reasoning_effort=effort))
+        result = await adapter.choose_move(SOLVED, [], list(MOVES), 15)
+    assert result.move == "R'"
 
 
 def test_compact_schema_matches_exact_move_enum():

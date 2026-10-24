@@ -53,7 +53,8 @@ class ChatAdapter(HTTPAdapter):
                 },
             },
             "max_tokens": self.settings.chat_max_tokens,
-            "temperature": 0,
+            # Opus endpoints do not advertise temperature support. With
+            # require_parameters=True it excludes every route (G2 exception).
         }
         if self.settings.chat_reasoning_effort != "omit":
             payload["reasoning"] = {"effort": "low", "exclude": True}
