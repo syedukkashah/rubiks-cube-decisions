@@ -1,6 +1,6 @@
 # Rubik's Cube Race backend
 
-FastAPI / Python 3.11+, contract **1.1.0**, implementing AGENTS.md at `0a55c1a`.
+FastAPI / Python 3.11+, contract **1.3.0**, implementing AGENTS.md at `7e66e53`.
 All development and automated tests run offline. Mock mode is the default.
 
 ## Install and start
@@ -18,8 +18,9 @@ API: `http://localhost:8000/api/v1`; interactive docs: `http://localhost:8000/do
 Use one backend process/worker. `.env` is ignored. Environment variables override
 `.env`, and settings are read at startup; restart after changes. The startup banner
 says **MOCK MODE** or **LIVE MODE**. Mock runs use no key, network or spend ledger.
-They deterministically reverse the scramble, return null confidence, and use
-synthetic 1 ms move latency. Their results are for pipeline testing only.
+Advanced mock runs deterministically reverse the scramble with null confidence
+and synthetic 1 ms latency. One-click simulated sessions use the personas below.
+Both are for preview/testing only, never evidence about the real models.
 
 ## Settings
 
@@ -38,6 +39,10 @@ synthetic 1 ms move latency. Their results are for pipeline testing only.
 | `SPEND_LEDGER_PATH` | `.spend/ledger.jsonl` | Relative to `backend`, or an absolute path |
 | `RUNS_DIR` | `.runs` | Relative to `backend`, or an absolute path |
 | `ALLOW_LIVE_RERUN` | `false` | Explicit override for duplicate live configurations |
+| `RECORDING_PATH` | `recordings/benchmark.json` | Atomic live recording; relative to `backend`, not git-ignored |
+| `EXPECTED_COST_WARMUP` | `0.03` | Warm-up gate baseline in USD |
+| `EXPECTED_COST_PRIMARY` | `0.33` | Primary gate baseline in USD |
+| `EXPECTED_COST_EXTENSION` | `0.20` | Extension gate baseline in USD |
 
 Non-numeric, negative and non-finite numeric settings fail at startup. Boolean
 settings accept only `true`/`false`. Fractional call/retry/token limits are rejected.
@@ -153,7 +158,8 @@ stored. Internal usage records do not change the public API shapes.
 file configured by `SPEND_LEDGER_PATH` (normally `backend/.spend/ledger.jsonl`).
 This resets local accounting, not actual provider charges. Do not use a reset to
 bypass the assignment's cumulative cap; preserve charged assignment evidence.
-Deleting `.runs` also removes replay and duplicate protection. Neither happens
+Deleting `.runs` removes saved run/SSE history and duplicate protection; the
+separate `RECORDING_PATH` still supports one-click replay. Neither happens
 automatically. Run only one process against these files; stop the server while
 running the paid smoke/calibration CLI.
 
@@ -197,26 +203,103 @@ one retry per move, history six, concurrency one:
 | 0 | Mock dry run and recording rehearsal | Steps below, offline | As below |
 | 1 | pytest → smoke | Four probes | One call/model |
 | 2 | Calibration; update `.env` | Seeds 100, 101, 102 | One call/state |
-| 3 | Live rehearsal | warmup / 1 / 100 | 5 |
-| 4 | Live warm-up | warmup / 1 / 101 | 30 |
-| 5 | Primary, record this run | primary / 5 / 202 | 30 |
-| 6 | Optional, only if budget permits | extension / 2 / 303 | 30 |
-| 7 | Export and replay final slide | Persisted primary run | No calls |
+| 3 | Live warm-up (also the rehearsal) | warmup / 1 / 101 | 30 |
+| 4 | Primary, record this run | primary / 5 / 202 | 30 |
+| 5 | Optional, only if gates permit | extension / 2 / 303 | 30 |
+| 6 | Export and replay final slide | Persisted primary run | No calls |
 
 After each live step, stop if spend exceeds 1.5× the section 6.2 expectation,
 Opus truncations exceed 20%, a run aborted, or the next estimate exceeds remaining
 budget. Skip the optional extension if refused; never raise the cap or rerun a
 paid step casually. Demo retakes should reopen saved results.
 
-Example API creation in PowerShell (mock first):
+Steps 3–5 are one session. There is no separate five-move live rehearsal in v1.3.0.
+
+## One-click workflow: preview, record once, replay
+
+1. **Preview without a key.** Leave `MOCK_MODELS=true`, start the backend, and
+   click Run full benchmark. `source: "auto"` chooses `simulated` when there is no
+   recording. The fixed plan is warm-up (1, seed 101), primary (5, seed 202), then
+   optional extension (2, seed 303). All four models use the normal runner.
+2. **Record once.** Complete the manual smoke and calibration prerequisites above,
+   set the key and `MOCK_MODELS=false`, and restart. Choose the separate Run live
+   action and confirm cost (`source: "live", confirm_cost: true`). Warm-up plus
+   primary must pass their combined pre-check before anything starts. At the
+   provisional 160-token cap this requires about $0.894 remaining. Successful
+   sessions atomically save `recordings/benchmark.json`, including puzzles, full
+   timestamped event logs, run snapshots and the session's ledger cost. A skipped
+   extension still permits saving the completed required steps. Failed/cancelled
+   sessions never create or replace a recording.
+3. **Replay for retakes.** Every later auto click selects `replay`, with or without
+   a key. New puzzle/run/trial IDs are created; recorded moves, confidence, invalid
+   outputs, retries, latencies, totals and results are copied. Event timestamps
+   and sequence numbers are new. Statistics equal the original measurements.
+   Replay invokes no adapter, makes no OpenRouter request and writes no ledger
+   rows. It never replaces the recording. The recording is intentionally tracked
+   by Git when the human chooses to commit it.
+
+`auto` **never selects live**, even when a funded key is configured. Explicit
+`simulated` also stays offline in live mode. `GET /benchmark` reports the plan,
+available sources, automatic selection and recording metadata without network
+requests. A corrupt recording fails startup validation rather than silently
+switching sources or spending money. Run only one backend process against the
+recording, run store and ledger.
+
+Simulation is a deterministic script keyed by cube state and model ID: Jev and
+Luna use hundreds of milliseconds with reversible detours; Clef is fastest and
+often reaches the move limit; Opus takes simulated seconds and solves the short
+suites optimally. Jev has a scripted malformed attempt followed by a retry.
+Confidence values are explicitly synthetic for the simulated decision personas.
+The engine still validates and applies every accepted move. `total_time_s` in
+simulation is the sum of simulated attempt latencies, including invalid attempts.
+These personas do not predict real model performance.
+
+`speed` ranges from 0.25 to 20 (default 1), scaling simulation sleeps and replay
+event gaps only; reported move latencies and trial totals stay unchanged. Live
+ignores speed. Set `include_extension: false` to create only the two required
+runs. If replay includes extension but the recording has none, that session step
+is `skipped`; its ordinary run is terminal `cancelled`, so SSE consumers close.
+
+All run IDs exist immediately. Poll `GET /benchmark/sessions/{session_id}` and use
+the unchanged `/runs/{run_id}`, `/events` and `/stats` endpoints. Runs execute
+strictly in plan order. One session may be active at a time (409 includes
+`active_session_id`). Live sessions also obey active-run and duplicate guards;
+an existing recording blocks another paid session unless `ALLOW_LIVE_RERUN=true`.
+That override never bypasses budget limits. `POST .../{session_id}/cancel` cancels
+the active run and all remaining steps. Existing per-run cancellation also stops
+the session. Sessions and runs survive restart as history, with no auto-resume.
+
+### Automatic live step gates
+
+After every live step, `runs[].gate` reports `passed`, actual `cost_usd`, its
+`expected_cost_usd`, `opus_truncation_pct` and all applicable `reasons`:
+
+| Reason | Failure condition |
+|---|---|
+| `cost_over_expected` | Step ledger cost > 1.5 × its `EXPECTED_COST_*` setting |
+| `opus_truncation` | More than 20% of Opus attempts end with `length` or empty content |
+| `run_aborted` | The run failed, including credentials or cost/call cap aborts |
+| `budget` | The next step's worst-case estimate exceeds the remaining ledger budget |
+
+Exactly 1.5× cost and exactly 20% truncation pass. With no Opus attempts the rate
+is `null`. Passing gates automatically continue. A failed warm-up gate cancels
+the remaining runs and fails the session without a recording. A gate after a
+completed primary run skips only the extension, completes the session and saves
+the required steps. An aborted required or extension run fails the session and
+is never recorded. Gate stops set `stop_reason: "gate"`; there is no approval
+pause or automatic retry of a paid step. A final step's gate is still reported.
+Simulation and replay always have `gate: null` and `stop_reason: null`.
+
+API example in PowerShell (safe auto):
 
 ```powershell
 $api = 'http://localhost:8000/api/v1'
-$puzzles = Invoke-RestMethod "$api/puzzles" -Method Post -ContentType 'application/json' -Body '{"suite":"warmup","count":1,"seed":100}'
-$body = @{ puzzle_ids = @($puzzles.puzzles.puzzle_id); max_moves = 5 } | ConvertTo-Json
-$run = Invoke-RestMethod "$api/runs" -Method Post -ContentType 'application/json' -Body $body
-curl.exe -N "$api/runs/$($run.run_id)/events"
-Invoke-RestMethod "$api/runs/$($run.run_id)/stats" | ConvertTo-Json -Depth 8
+Invoke-RestMethod "$api/benchmark" | ConvertTo-Json -Depth 8
+$session = Invoke-RestMethod "$api/benchmark/sessions" -Method Post -ContentType 'application/json' -Body '{"source":"auto","speed":4}'
+Invoke-RestMethod "$api/benchmark/sessions/$($session.session_id)" | ConvertTo-Json -Depth 8
+curl.exe -N "$api/runs/$($session.runs[0].run_id)/events"
+# Follow primary/extension as they become running; default the final slide to primary.
+Invoke-RestMethod "$api/runs/$($session.runs[1].run_id)/stats" | ConvertTo-Json -Depth 8
 ```
 
 ## Offline export
