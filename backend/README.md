@@ -233,7 +233,10 @@ Steps 3–5 are one session. There is no separate five-move live rehearsal in v1
 3. **Replay for retakes.** Every later auto click selects `replay`, with or without
    a key. New puzzle/run/trial IDs are created; recorded moves, confidence, invalid
    outputs, retries, latencies, totals and results are copied. Event timestamps
-   and sequence numbers are new. Statistics equal the original measurements.
+   and sequence numbers are new. Run/trial start and finish timestamps match
+   playback events; run creation is the new queue time. These display-clock
+   windows follow replay speed, while `total_time_s` and `latency_ms` retain
+   their recorded values. Statistics equal the original measurements.
    Replay invokes no adapter, makes no OpenRouter request and writes no ledger
    rows. It never replaces the recording. The recording is intentionally tracked
    by Git when the human chooses to commit it.

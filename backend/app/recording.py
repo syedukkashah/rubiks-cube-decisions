@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from pydantic import Field, model_validator
 
@@ -16,6 +16,7 @@ from app.schemas import (
     Schema,
     Suite,
     Trial,
+    utc_now,
 )
 
 
@@ -82,29 +83,6 @@ def remap(value, ids):
 async def replay_run(state, recorded, ids, speed, sleep=asyncio.sleep, initial_gap=0):
     """Use recorded events to update ordinary snapshots, then publish ordinary SSE."""
     first = datetime.fromisoformat(recorded.events[0].ts)
-    start = datetime.now(UTC)
-
-    def stamp(value):
-        if value is None:
-            return None
-        offset = (datetime.fromisoformat(value) - first).total_seconds() / speed
-        return (
-            (start + timedelta(seconds=offset))
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z")
-        )
-
-    def restamp(value):
-        if isinstance(value, list):
-            return [restamp(item) for item in value]
-        if not isinstance(value, dict):
-            return value
-        return {
-            key: stamp(item)
-            if key in {"created_at", "started_at", "finished_at"}
-            else restamp(item)
-            for key, item in value.items()
-        }
 
     trials = {t.trial_id: t for t in state.snapshot.trials}
     previous = first - timedelta(seconds=initial_gap)
@@ -112,14 +90,17 @@ async def replay_run(state, recorded, ids, speed, sleep=asyncio.sleep, initial_g
         current = datetime.fromisoformat(event.ts)
         await sleep(max(0, (current - previous).total_seconds()) / speed)
         previous = current
-        data = restamp(remap(event.data, ids))
+        # Capture after the sleep, including any gap between session steps. Snapshot
+        # clocks and SSE must describe the same actual playback instant.
+        emitted_at = utc_now()
+        data = remap(event.data, ids)
         trial_id = ids.get(event.trial_id)
         trial = trials.get(trial_id)
         if event.type == "run_started":
             state.snapshot.status = "running"
-            state.snapshot.started_at = stamp(event.ts)
+            state.snapshot.started_at = emitted_at
         elif event.type == "trial_started":
-            trial.status, trial.started_at = "running", stamp(event.ts)
+            trial.status, trial.started_at = "running", emitted_at
         elif event.type == "move_requested":
             if data["attempt"] > 1:
                 trial.retry_count += 1
@@ -137,16 +118,24 @@ async def replay_run(state, recorded, ids, speed, sleep=asyncio.sleep, initial_g
             trial.moves_used, trial.solved = data["moves_used"], data["solved"]
             trial.current_facelets = data["facelets_after"]
         elif event.type == "trial_finished":
+            data["started_at"] = trial.started_at
+            data["finished_at"] = emitted_at
             copied = Trial.model_validate(data)
             for field in type(copied).model_fields:
                 setattr(trial, field, getattr(copied, field))
         elif event.type == "run_finished":
             # Recorded totals (including wall time and retries) are evidence, not replay timing.
-            copied = RunSnapshot.model_validate(restamp(remap(recorded.snapshot.model_dump(), ids)))
+            copied = RunSnapshot.model_validate(remap(recorded.snapshot.model_dump(), ids))
+            for copied_trial in copied.trials:
+                replayed = trials[copied_trial.trial_id]
+                copied_trial.started_at = replayed.started_at
+                copied_trial.finished_at = replayed.finished_at
             state.snapshot.trials = copied.trials
             state.snapshot.status = copied.status
-            state.snapshot.finished_at = data["finished_at"]
-        state.log.emit(event.type, data, trial_id)
+            state.snapshot.finished_at = emitted_at
+            data["finished_at"] = emitted_at
+            # created_at remains the new run's queue time; never copy the old run clock.
+        state.log.emit(event.type, data, trial_id, ts=emitted_at)
 
 
 def recording_json(recording, api_key):

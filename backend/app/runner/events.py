@@ -10,13 +10,15 @@ class EventLog:
         self.changed = asyncio.Event()
         self.on_event = None
 
-    def emit(self, event_type: str, data: dict, trial_id: str | None = None):
+    def emit(
+        self, event_type: str, data: dict, trial_id: str | None = None, *, ts: str | None = None
+    ):
         event = Event(
             seq=len(self.events) + 1,
             type=event_type,
             run_id=self.snapshot.run_id,
             trial_id=trial_id,
-            ts=utc_now(),
+            ts=ts if ts is not None else utc_now(),
             data=data,
         )
         # Serialize now so later trial mutations cannot alter historical events.
