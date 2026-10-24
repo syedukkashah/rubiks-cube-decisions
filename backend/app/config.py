@@ -13,6 +13,14 @@ INPUT_TOKEN_ESTIMATE = 300
 MAX_SPEND_USD_DEFAULT = 1.10
 MAX_SPEND_USD_HARD_LIMIT = 2.00
 OPUS_TRUNCATION_GATE_MODES = ("stop", "report")
+# "full" (default): admit a live run/session only if the whole worst case fits.
+# "rolling" (human-approved 2026-10-25 for one session): admit if one puzzle's worst
+# case plus this margin fits, and re-check that before every puzzle of a sequential run.
+LIVE_ADMISSION_MODES = ("full", "rolling")
+ROLLING_ADMISSION_MARGIN_USD = "0.05"
+# Per-call timeout of the fixed benchmark plan; the same for every model.
+BENCHMARK_TIMEOUT_S_DEFAULT = 15
+BENCHMARK_TIMEOUT_S_MAX = 20
 # Human-approved after the 480-input-token live probe; also the Opus planning floor.
 CHAT_PROMPT_TOKEN_LIMIT = 600
 # USD per million tokens; G1 reference prices, 2026-10-24.
@@ -50,11 +58,14 @@ class Settings:
     # "stop": the opus_truncation gate stops a live session (default). "report": the
     # reason is still computed and recorded in runs[].gate but does not stop it.
     opus_truncation_gate: str = "stop"
+    live_admission: str = "full"
+    benchmark_timeout_s: float = BENCHMARK_TIMEOUT_S_DEFAULT
 
     def __post_init__(self):
         for name in (
             "max_spend_usd",
             "max_timeout_s",
+            "benchmark_timeout_s",
             "max_trial_retries",
             "max_live_calls",
             "chat_max_tokens",
@@ -82,6 +93,10 @@ class Settings:
             raise ValueError("CHAT_REASONING_EFFORT must be low or omit")
         if self.opus_truncation_gate not in OPUS_TRUNCATION_GATE_MODES:
             raise ValueError("OPUS_TRUNCATION_GATE must be stop or report")
+        if self.live_admission not in LIVE_ADMISSION_MODES:
+            raise ValueError("LIVE_ADMISSION must be full or rolling")
+        if not 1 <= self.benchmark_timeout_s <= BENCHMARK_TIMEOUT_S_MAX:
+            raise ValueError(f"BENCHMARK_TIMEOUT_S must be between 1 and {BENCHMARK_TIMEOUT_S_MAX}")
         for name in ("mock_models", "allow_live_rerun"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name.upper()} must be true or false")
@@ -129,4 +144,6 @@ class Settings:
             expected_cost_primary=number("EXPECTED_COST_PRIMARY", 0.33),
             expected_cost_extension=number("EXPECTED_COST_EXTENSION", 0.20),
             opus_truncation_gate=environ.get("OPUS_TRUNCATION_GATE", "stop").strip().lower(),
+            live_admission=environ.get("LIVE_ADMISSION", "full").strip().lower(),
+            benchmark_timeout_s=number("BENCHMARK_TIMEOUT_S", BENCHMARK_TIMEOUT_S_DEFAULT),
         )

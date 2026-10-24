@@ -139,7 +139,7 @@ class BenchmarkService:
                             },
                         )
                 async with self.ledger.lock:
-                    cost = self.ledger.estimate_run(config)
+                    cost = self.ledger.admission_estimate(config)
                     if cost > self.ledger.remaining:
                         raise RunConflict(
                             "Run exceeds remaining live budget",
@@ -191,6 +191,8 @@ class BenchmarkService:
             "chat_max_tokens": self.settings.chat_max_tokens,
             "chat_reasoning_effort": self.settings.chat_reasoning_effort,
             "max_trial_retries": self.settings.max_trial_retries,
+            "timeout_s": config.timeout_s,
+            "live_admission": self.settings.live_admission,
         }
         self._watch(state)
         if self.store is not None:
@@ -246,11 +248,23 @@ class BenchmarkService:
         snapshot.started_at = utc_now()
         state.log.emit("run_started", {"trial_count": len(snapshot.trials)})
         semaphore = asyncio.Semaphore(snapshot.config.concurrency)
+        rolling = state.live and self.ledger is not None and self.ledger.rolling(snapshot.config)
+        started_puzzles = set()
 
         async def worker(trial):
             async with semaphore:
                 if state.failure is not None:
                     return
+                if rolling and trial.puzzle_id not in started_puzzles:
+                    # Concurrency 1 and puzzle-major trial order (FIFO semaphore): every
+                    # earlier trial has settled, so this covers the whole next puzzle.
+                    started_puzzles.add(trial.puzzle_id)
+                    needed = self.ledger.admission_estimate(snapshot.config)
+                    if needed > self.ledger.remaining:
+                        state.failure = BudgetExceeded(
+                            "Remaining live budget does not cover the next puzzle"
+                        )
+                        raise state.failure
                 await self._trial(state, trial)
 
         workers = [asyncio.create_task(worker(trial)) for trial in snapshot.trials]

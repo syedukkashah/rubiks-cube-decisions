@@ -64,6 +64,8 @@ async def test_finished_run_roundtrip(settings):
         "chat_max_tokens": 160,
         "chat_reasoning_effort": "low",
         "max_trial_retries": 3,
+        "timeout_s": 15,
+        "live_admission": "full",
     }
     assert not settings.spend_ledger_path.exists()
 

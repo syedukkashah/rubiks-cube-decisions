@@ -7,7 +7,13 @@ import asyncio
 import json
 from decimal import Decimal
 
-from app.config import CHAT_MODEL, INPUT_TOKEN_FLOORS, PRICES, Settings
+from app.config import (
+    CHAT_MODEL,
+    INPUT_TOKEN_FLOORS,
+    PRICES,
+    ROLLING_ADMISSION_MARGIN_USD,
+    Settings,
+)
 from app.schemas import utc_now
 from app.storage import atomic_text
 
@@ -42,9 +48,7 @@ def estimate_run(settings: Settings, config, input_token_estimates=None) -> Deci
                 per_call_cost(
                     settings,
                     model,
-                    max(
-                        INPUT_TOKEN_FLOORS[model], input_token_estimates.get(model, 0)
-                    ),
+                    max(INPUT_TOKEN_FLOORS[model], input_token_estimates.get(model, 0)),
                 )
                 for model in config.model_ids
             ),
@@ -81,6 +85,21 @@ class SpendLedger:
 
     def estimate_run(self, config):
         return estimate_run(self.settings, config, self.input_token_estimates)
+
+    def estimate_puzzle(self, config):
+        """Worst case of one puzzle: every model, all attempts, current inputs and cap."""
+        return self.estimate_run(config.model_copy(update={"puzzle_ids": config.puzzle_ids[:1]}))
+
+    def rolling(self, config):
+        # Only a sequential run starts each puzzle with nothing else in flight, which is
+        # what makes the per-puzzle re-check sound. Concurrent runs keep full admission.
+        return self.settings.live_admission == "rolling" and config.concurrency == 1
+
+    def admission_estimate(self, config):
+        """What remaining budget must cover before admitting (or continuing) a run."""
+        if self.rolling(config):
+            return self.estimate_puzzle(config) + Decimal(ROLLING_ADMISSION_MARGIN_USD)
+        return self.estimate_run(config)
 
     @property
     def spent_usd(self):
