@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,7 @@ from app.schemas import (
     BenchmarkSessionRequest,
     BenchmarkSessionRun,
     RunConfig,
+    RunSnapshot,
 )
 from app.sessions import SessionError, SessionManager
 from app.stats import compute_stats
@@ -491,9 +493,11 @@ def test_new_api_responses_validate_against_openapi(settings):
         validate(json.loads((contract / "fixtures" / name).read_text()), "BenchmarkSession")
 
 
+@pytest.mark.parametrize("mode", ["stop", "report"])
 @pytest.mark.parametrize("name,expected", [("warmup", "failed"), ("primary", "completed")])
-async def test_gate_stop_rules(settings, name, expected):
-    settings = replace(settings, **{"expected_cost_" + name: 0})
+async def test_gate_stop_rules(settings, name, expected, mode):
+    # Report mode only relaxes opus_truncation; the cost gate still stops the session.
+    settings = replace(settings, opus_truncation_gate=mode, **{"expected_cost_" + name: 0})
     mgr, state, _ = await record_live(settings)
     assert state.snapshot.status == expected and state.snapshot.stop_reason == "gate"
     step = next(r for r in state.snapshot.runs if r.step == name)
@@ -507,10 +511,12 @@ async def test_gate_stop_rules(settings, name, expected):
         assert len(mgr.recording.runs) == 2
 
 
+@pytest.mark.parametrize("mode", ["stop", "report"])
 @pytest.mark.parametrize(
     "reason", ["cost_over_expected", "opus_truncation", "run_aborted", "budget", None]
 )
-async def test_each_gate_in_isolation(settings, reason):
+async def test_each_gate_in_isolation(settings, reason, mode):
+    settings = replace(settings, opus_truncation_gate=mode)
     async with httpx.AsyncClient(transport=httpx.MockTransport(deny_network)) as client:
         mgr = manager(settings, client)
         puzzles = [simple_puzzle(f"pz_{i}") for i in range(6)]
@@ -550,7 +556,7 @@ async def test_each_gate_in_isolation(settings, reason):
             ]  # Exactly 1.5x passes.
         gate = mgr.gate(step, following)
         assert gate.reasons == ([reason] if reason else [])
-        assert gate.passed == (reason is None)
+        assert gate.passed == (reason is None or (mode == "report" and reason == "opus_truncation"))
         assert gate.opus_truncation_pct == (
             40 if reason == "opus_truncation" else 20 if reason is None else 0
         )
@@ -617,3 +623,149 @@ async def test_live_session_guards_existing_runs_before_network(settings):
             await mgr.submit(BenchmarkSessionRequest(source="live", confirm_cost=True))
         assert blocked.value.details["reason"] == "active_run"
         assert blocked.value.details["active_run_id"] == active.snapshot.run_id
+
+
+def truncate_opus(body):
+    """The recorded failure shape: all output spent on reasoning, no content."""
+    if body["model"] != CHAT_MODEL:
+        return None
+    return httpx.Response(
+        200,
+        json={
+            "usage": {
+                "prompt_tokens": 491,
+                "completion_tokens": 336,
+                "completion_tokens_details": {"reasoning_tokens": 336},
+                "cost": 0.00001,
+            },
+            "choices": [{"finish_reason": "length", "message": {"content": None}}],
+        },
+    )
+
+
+async def test_report_mode_records_opus_truncation_without_stopping(settings):
+    settings = replace(settings, opus_truncation_gate="report")
+    mgr, state, _ = await record_live(settings, include_extension=False, failure=truncate_opus)
+    assert state.snapshot.status == "completed" and state.snapshot.stop_reason is None
+    assert [r.status for r in state.snapshot.runs] == ["completed", "completed"]
+    for step in state.snapshot.runs:
+        assert step.gate.passed and step.gate.reasons == ["opus_truncation"]
+        assert step.gate.opus_truncation_pct == 100
+        trials = mgr.service.runs[step.run_id].snapshot.trials
+        # Truncations stay real Opus failures: no move is invented or repaired.
+        for trial in trials:
+            if trial.model_id == CHAT_MODEL:
+                assert trial.status == "error" and trial.moves_used == 0
+                assert trial.invalid_move_count == 2
+            else:
+                assert trial.status == "solved"
+    recording = RecordingFile.model_validate_json(settings.recording_path.read_text())
+    assert [r.gate.reasons for r in recording.session.runs] == [["opus_truncation"]] * 2
+    assert all(
+        m["finish_reason"] == "length" and not m["accepted"]
+        for run in recording.runs
+        for m in run.call_metrics
+        if m["model_id"] == CHAT_MODEL
+    )
+
+
+async def test_report_mode_still_stops_on_other_gates(settings):
+    settings = replace(settings, opus_truncation_gate="report", expected_cost_warmup=0)
+    _, state, _ = await record_live(settings, failure=truncate_opus)
+    gate = state.snapshot.runs[0].gate
+    assert gate.reasons == ["cost_over_expected", "opus_truncation"] and not gate.passed
+    assert state.snapshot.status == "failed" and state.snapshot.stop_reason == "gate"
+    assert [r.status for r in state.snapshot.runs] == ["completed", "cancelled", "cancelled"]
+    assert not settings.recording_path.exists()
+
+
+async def test_recording_holds_full_evidence_and_timestamped_backup(settings):
+    mgr, state, _ = await record_live(settings, include_extension=False)
+    text = settings.recording_path.read_text(encoding="utf-8")
+    data = json.loads(text)
+    meta = data["recording"]
+    assert meta["session_id"] == state.snapshot.session_id and meta["recorded_at"]
+    rows = [json.loads(line) for line in settings.spend_ledger_path.read_text().splitlines()]
+    assert meta["total_cost_usd"] == pytest.approx(sum(r["cost_usd"] for r in rows))
+    assert meta["trial_count"] == 24
+    assert [r["step"] for r in data["runs"]] == ["warmup", "primary"]
+    puzzles = {p["puzzle_id"] for p in data["puzzles"]}
+    for recorded in data["runs"]:
+        run_id = recorded["snapshot"]["run_id"]
+        run = mgr.service.runs[run_id]
+        assert set(recorded["snapshot"]["config"]["puzzle_ids"]) <= puzzles
+        assert recorded["events"] == [e.model_dump() for e in run.log.events]
+        assert all(datetime.fromisoformat(e["ts"]) for e in recorded["events"])
+        assert recorded["execution_config"]["chat_max_tokens"] == settings.chat_max_tokens
+        calls = recorded["call_metrics"]
+        assert len(calls) == sum(r["run_id"] == run_id for r in rows) > 0
+        for call in calls:
+            assert call["latency_ms"] >= 0 and "provider" in call
+            assert call["finish_reason"] in {"stop", None} and call["empty_content"] is False
+            assert call["usage"] == {
+                "input_tokens": 200,
+                "output_tokens": 32,
+                "reasoning_tokens": 20,
+                "cost": 0.00001,
+            }
+        assert compute_stats(RunSnapshot.model_validate(recorded["snapshot"])) == compute_stats(
+            run.snapshot
+        )
+    for secret in ("private-test-key", "Authorization", '"messages"', '"headers"'):
+        assert secret not in text
+    stamp = re.sub(r"[^0-9A-Za-z]", "", meta["recorded_at"])
+    backup = settings.recording_path.with_name(f"benchmark.{stamp}.json")
+    assert backup.read_text(encoding="utf-8") == text
+    assert sorted(settings.recording_path.parent.iterdir()) == sorted(
+        [settings.recording_path, backup]
+    )
+    with TestClient(create_app(settings, transport=httpx.MockTransport(deny_network))) as client:
+        info = client.get("/api/v1/benchmark").json()
+    assert info["auto_source"] == "replay" and info["sources"]["replay"]
+    assert info["recording"] == meta
+
+
+async def test_rerun_override_admits_new_config_after_completed_live_warmup(settings):
+    # Mirrors the saved history: a completed live warm-up inside a gate-failed session.
+    first, failed, _ = await record_live(settings, include_extension=False, failure=truncate_opus)
+    warmup_id = failed.snapshot.runs[0].run_id
+    assert failed.snapshot.status == "failed" and not settings.recording_path.exists()
+    assert first.service.runs[warmup_id].snapshot.status == "completed"
+    saved = {p: p.read_bytes() for p in settings.runs_dir.rglob("*.json")}
+    ledger = settings.spend_ledger_path.read_text()
+    # A different cap and ceiling are not part of the duplicate signature.
+    session = replace(settings, chat_max_tokens=336, max_spend_usd=2.0)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(deny_network)) as client:
+        mgr = manager(replace(session, mock_models=False, api_key="private-test-key"), client)
+        assert not mgr.info().sources.live
+        with pytest.raises(SessionError) as duplicate:
+            await mgr.submit(BenchmarkSessionRequest(source="live", confirm_cost=True))
+    assert duplicate.value.details == {"reason": "active_run", "duplicate_of_run_id": warmup_id}
+    assert {p: p.read_bytes() for p in settings.runs_dir.rglob("*.json")} == saved
+    assert settings.spend_ledger_path.read_text() == ledger
+    mgr, rerun, _ = await record_live(
+        replace(session, allow_live_rerun=True), include_extension=False
+    )
+    assert rerun.snapshot.status == "completed" and settings.recording_path.exists()
+    assert mgr.recording.runs[0].execution_config["chat_max_tokens"] == 336
+    assert all(path.read_bytes() == content for path, content in saved.items())
+    assert settings.spend_ledger_path.read_text().startswith(ledger)
+    assert mgr.sessions[failed.snapshot.session_id].snapshot.status == "failed"
+    assert mgr.service.runs[warmup_id].snapshot.status == "completed"
+
+
+async def test_explicit_rerun_never_loses_the_previous_recording(settings):
+    await record_live(settings, include_extension=False)
+    first = settings.recording_path.read_text(encoding="utf-8")
+    custom = replace(settings, mock_models=False, api_key="private-test-key", chat_max_tokens=336)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(deny_network)) as client:
+        mgr = manager(replace(custom, max_spend_usd=2.0), client)
+        with pytest.raises(SessionError) as exc:
+            await mgr.submit(BenchmarkSessionRequest(source="live", confirm_cost=True))
+    assert exc.value.details["reason"] == "recording_exists"
+    assert settings.recording_path.read_text(encoding="utf-8") == first
+    await record_live(replace(settings, allow_live_rerun=True), include_extension=False)
+    second = settings.recording_path.read_text(encoding="utf-8")
+    backups = sorted(settings.recording_path.parent.glob("benchmark.*.json"))
+    assert second != first and len(backups) == 2
+    assert {b.read_text(encoding="utf-8") for b in backups} == {first, second}

@@ -275,3 +275,60 @@ written analysis: how much thinking Opus at `low` needs on the failed warm-up st
 - No document reviewed describes per-provider differences in Opus thinking length.
 - None of the offline tests show the real model works; they only pin request shape,
   classification and accounting.
+
+## Addendum (2026-10-25): 512-token probe result and the human's decision
+
+- **Probe.** The optional section 7 probe was approved and run once
+  (`--diagnose-opus-warmup`, `CHAT_MAX_TOKENS=512`, seed-101 warm-up state). Opus
+  answered `D2` with prompt 491, completion 266, reasoning 255, `finish_reason: stop`,
+  cost $0.007284. So at effort `low` this state needed about 255 reasoning tokens,
+  which explains both 128-token truncations. It is one sample on one state; seed 100
+  still truncated at 512. Ledger after the probe: 103 attempts, $0.055307648.
+- **Decision.** The human then decided: "yes, spend $2 for a real session, record
+  everything on the backend so that every re-run is a [replay]". This replaces D1–D3
+  above with a variant of D1 plus D3: the spend ceiling may be raised to $2.00 via the
+  environment (code default still $1.10, hard maximum $2.00), and the
+  `opus_truncation` gate may be set to `report` (`OPUS_TRUNCATION_GATE`, default `stop`).
+  Truncations remain counted Opus failures.
+- **Session configuration (prepared, not run).** `CHAT_MAX_TOKENS=336`: the largest
+  multiple of 16 for which warm-up + 5 primary passes the worst-case pre-check with at
+  least $0.05 left ($1.840903812 against $1.944692352). Gate baselines
+  `EXPECTED_COST_WARMUP=0.22` and `EXPECTED_COST_PRIMARY=1.10` so the cost gate does
+  not misfire on a session where Opus answers. `ALLOW_LIVE_RERUN=true` because the
+  saved warm-up is a G12 duplicate (the cap and ceiling are not part of the duplicate
+  signature). Details and arithmetic: `README.md`, "Approved $2 live session";
+  launcher: `scripts/run_live_session.ps1`.
+- **Still open.** 336 is budget-derived, not calibrated (the 1.5× rule would ask for
+  400). The $2 ceiling exceeds the assignment's $1.20 and must be disclosed. Whether
+  Opus answers reliably on the primary states is unknown until the session runs. The
+  benchmark and the submission are **not** complete.
+
+## Addendum 2 (2026-10-25): failed cap-336 session, new evidence, cap-512 second attempt
+
+- **First session failed for an account reason.** `sess_e92516433a334c6db0adbacfec3fc4e2`
+  (cap 336, `OPUS_TRUNCATION_GATE=report`) ended `failed` after $0.066881598: the
+  OpenRouter account had zero credit ("insufficient credits") on the 17th Opus request
+  of primary puzzle 1. Its warm-up `run_edcb6b0319f544e8a26fc83990d2f729` completed;
+  the primary `run_acb06ad4715544768df3040c735042a2` failed (`run_aborted`). Nothing was
+  recorded. Ledger now 302 attempts, $0.122189246 (including $0.03112 of conservative
+  reservations); $1.877810754 remains under $2.00.
+- **New evidence.** The seed-101 warm-up state answered in 266 completion tokens at cap
+  512 (probe) but truncated at 336 on both attempts (`length`, 336 reasoning tokens,
+  empty content); seed 100 truncated even at 512; on primary puzzle 1 Opus answered 16
+  moves with `finish_reason: stop`, 10–11 output tokens, no reasoning, ~2.4 s and
+  ~$0.0022 per call. Reasoning length varies strongly by state and sample.
+- **Decision and configuration.** The human decided to "fix the truncation problem":
+  cap **512** (hard maximum), effort `low`, prompt unchanged. Full admission prices
+  6 puzzles × $0.422996442 = $2.537978652 and can never admit 512 under $2.00, so the
+  human approved, for this session only, `LIVE_ADMISSION=rolling`: one puzzle's worst
+  case + $0.05 ($0.472996442) must fit at admission, before every puzzle and for the next
+  step; otherwise the run stops cleanly (`run_aborted`, nothing recorded). The per-call
+  ledger still guarantees the $2.00 ceiling. Gate baselines `EXPECTED_COST_WARMUP=0.29`
+  ($0.435 ≥ one-puzzle worst case) and `EXPECTED_COST_PRIMARY=1.41` ($2.115 ≥ five);
+  `BENCHMARK_TIMEOUT_S=20` for all models (one cap-512 call took ~12.5 s). Arithmetic
+  and stop conditions: `README.md`, "Second attempt: cap 512 with rolling admission".
+- **Still open / risks.** Truncation at 512 remains possible on hard states and counts
+  as an Opus failure; the cap is a project cost control, not a measure of model
+  ability. $2.00 exceeds the assignment's $1.20 and AGENTS.md G1 and must be
+  disclosed; the admission relaxation is a human-approved deviation for this session
+  only. The benchmark and the submission are **not** complete.

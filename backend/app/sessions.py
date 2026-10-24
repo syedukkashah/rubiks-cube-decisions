@@ -1,6 +1,8 @@
 """Fixed benchmark plan: explicit live opt-in, safe auto, and offline playback."""
 
 import asyncio
+import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -24,6 +26,8 @@ from app.schemas import (
     utc_now,
 )
 from app.storage import atomic_text, write_json
+
+logger = logging.getLogger(__name__)
 
 PLAN = (
     PlanStep(step="warmup", suite="warmup", count=1, seed=101),
@@ -68,7 +72,7 @@ class SessionManager:
                     )
                 ),
                 30,
-                15,
+                self.settings.benchmark_timeout_s,
                 1,
                 6,
             )
@@ -96,16 +100,17 @@ class SessionManager:
                 state.snapshot.model_dump(),
             )
 
+    def _plan_config(self, puzzle_ids):
+        return RunConfig(puzzle_ids=puzzle_ids, timeout_s=self.settings.benchmark_timeout_s)
+
     def _required_estimate(self):
-        return sum(
-            (
-                self.service.ledger.estimate_run(
-                    RunConfig(puzzle_ids=[str(i) for i in range(step.count)])
-                )
-                for step in PLAN[:2]
-            ),
-            Decimal(0),
-        )
+        ledger = self.service.ledger
+        configs = [self._plan_config([str(i) for i in range(step.count)]) for step in PLAN[:2]]
+        if self.settings.live_admission == "rolling":
+            # Rolling: the next puzzle is re-checked before it starts (runner) and the
+            # next step by the budget gate, so admission needs one puzzle's worst case.
+            return max(ledger.admission_estimate(config) for config in configs)
+        return sum((ledger.estimate_run(config) for config in configs), Decimal(0))
 
     def _live_allowed(self):
         settings, ledger = self.settings, self.service.ledger
@@ -130,7 +135,7 @@ class SessionManager:
             )
             and self._required_estimate() <= ledger.remaining
             and ledger.live_calls < settings.max_live_calls
-            and settings.max_timeout_s >= 15
+            and settings.max_timeout_s >= settings.benchmark_timeout_s
             and settings.max_retries_cap >= 1
         )
 
@@ -175,7 +180,7 @@ class SessionManager:
             ("timeout_s", settings.max_timeout_s),
             ("max_retries", settings.max_retries_cap),
         ):
-            if (15 if name == "timeout_s" else 1) > cap:
+            if (settings.benchmark_timeout_s if name == "timeout_s" else 1) > cap:
                 raise SessionError(
                     422, "validation_error", f"Plan {name} exceeds configured cap", {"field": name}
                 )
@@ -231,7 +236,7 @@ class SessionManager:
                         generate_puzzles,
                         PuzzleRequest(suite=step.suite, count=step.count, seed=step.seed),
                     )
-                    config = RunConfig(puzzle_ids=[p.puzzle_id for p in puzzles])
+                    config = self._plan_config([p.puzzle_id for p in puzzles])
                 paths = (
                     await asyncio.to_thread(simulation_paths, puzzles)
                     if source == "simulated"
@@ -339,14 +344,19 @@ class SessionManager:
             reasons.append("run_aborted")
         if (
             next_step is not None
-            and self.service.ledger.estimate_run(
+            and self.service.ledger.admission_estimate(
                 self.service.runs[next_step.run_id].snapshot.config
             )
             > self.service.ledger.remaining
         ):
             reasons.append("budget")
+        # Report mode keeps the truncation reason visible but lets it not stop the
+        # session. Truncations remain counted Opus failures; every other gate stops.
+        report_only = (
+            {"opus_truncation"} if self.settings.opus_truncation_gate == "report" else set()
+        )
         return StepGate(
-            passed=not reasons,
+            passed=not [reason for reason in reasons if reason not in report_only],
             cost_usd=float(cost),
             expected_cost_usd=float(expected),
             opus_truncation_pct=pct,
@@ -399,8 +409,17 @@ class SessionManager:
             puzzles=[p for p in self.service.puzzles.values() if p.puzzle_id in puzzle_ids],
             runs=runs,
         )
-        atomic_text(self.settings.recording_path, recording_json(recording, self.settings.api_key))
+        text = recording_json(recording, self.settings.api_key)
+        atomic_text(self.settings.recording_path, text)
         self.recording = recording
+        # A timestamped copy keeps every successful recording even if a later explicitly
+        # approved rerun replaces the primary file. Never fail a saved session over it.
+        path = self.settings.recording_path
+        stamp = re.sub(r"[^0-9A-Za-z]", "", recording.recording.recorded_at)
+        try:
+            atomic_text(path.with_name(f"{path.stem}.{stamp}{path.suffix}"), text)
+        except OSError:
+            logger.warning("Recording saved, but its timestamped backup could not be written")
 
     async def _execute(self, state):
         snapshot = state.snapshot

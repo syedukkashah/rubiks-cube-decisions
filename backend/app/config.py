@@ -8,6 +8,19 @@ from dotenv import load_dotenv
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 CHAT_MODEL = "anthropic/claude-opus-5.5"
 INPUT_TOKEN_ESTIMATE = 300
+# Default stays 1.10. The human approved (2026-10-25) raising it, via env only, to at
+# most 2.00 for one live session; anything above the hard maximum is rejected.
+MAX_SPEND_USD_DEFAULT = 1.10
+MAX_SPEND_USD_HARD_LIMIT = 2.00
+OPUS_TRUNCATION_GATE_MODES = ("stop", "report")
+# "full" (default): admit a live run/session only if the whole worst case fits.
+# "rolling" (human-approved 2026-10-25 for one session): admit if one puzzle's worst
+# case plus this margin fits, and re-check that before every puzzle of a sequential run.
+LIVE_ADMISSION_MODES = ("full", "rolling")
+ROLLING_ADMISSION_MARGIN_USD = "0.05"
+# Per-call timeout of the fixed benchmark plan; the same for every model.
+BENCHMARK_TIMEOUT_S_DEFAULT = 15
+BENCHMARK_TIMEOUT_S_MAX = 20
 # Human-approved after the 480-input-token live probe; also the Opus planning floor.
 CHAT_PROMPT_TOKEN_LIMIT = 600
 # USD per million tokens; G1 reference prices, 2026-10-24.
@@ -28,7 +41,7 @@ class Settings:
     api_key: str = field(default="", repr=False)
     cors_origins: tuple[str, ...] = ("http://localhost:5173",)
     mock_models: bool = True
-    max_spend_usd: float = 1.10
+    max_spend_usd: float = MAX_SPEND_USD_DEFAULT
     max_trial_retries: int = 3
     max_live_calls: int = 2000
     chat_max_tokens: int = 160
@@ -42,11 +55,17 @@ class Settings:
     expected_cost_warmup: float = 0.03
     expected_cost_primary: float = 0.33
     expected_cost_extension: float = 0.20
+    # "stop": the opus_truncation gate stops a live session (default). "report": the
+    # reason is still computed and recorded in runs[].gate but does not stop it.
+    opus_truncation_gate: str = "stop"
+    live_admission: str = "full"
+    benchmark_timeout_s: float = BENCHMARK_TIMEOUT_S_DEFAULT
 
     def __post_init__(self):
         for name in (
             "max_spend_usd",
             "max_timeout_s",
+            "benchmark_timeout_s",
             "max_trial_retries",
             "max_live_calls",
             "chat_max_tokens",
@@ -66,12 +85,18 @@ class Settings:
         for name in ("max_trial_retries", "max_live_calls", "chat_max_tokens", "max_retries_cap"):
             if isinstance(getattr(self, name), bool) or not isinstance(getattr(self, name), int):
                 raise ValueError(f"{name.upper()} must be an integer")
-        if self.max_spend_usd > 1.10:
-            raise ValueError("MAX_SPEND_USD must not exceed 1.10")
+        if self.max_spend_usd > MAX_SPEND_USD_HARD_LIMIT:
+            raise ValueError(f"MAX_SPEND_USD must not exceed {MAX_SPEND_USD_HARD_LIMIT:.2f}")
         if not 64 <= self.chat_max_tokens <= 512:
             raise ValueError("CHAT_MAX_TOKENS must be between 64 and 512")
         if self.chat_reasoning_effort not in {"low", "omit"}:
             raise ValueError("CHAT_REASONING_EFFORT must be low or omit")
+        if self.opus_truncation_gate not in OPUS_TRUNCATION_GATE_MODES:
+            raise ValueError("OPUS_TRUNCATION_GATE must be stop or report")
+        if self.live_admission not in LIVE_ADMISSION_MODES:
+            raise ValueError("LIVE_ADMISSION must be full or rolling")
+        if not 1 <= self.benchmark_timeout_s <= BENCHMARK_TIMEOUT_S_MAX:
+            raise ValueError(f"BENCHMARK_TIMEOUT_S must be between 1 and {BENCHMARK_TIMEOUT_S_MAX}")
         for name in ("mock_models", "allow_live_rerun"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name.upper()} must be true or false")
@@ -104,7 +129,7 @@ class Settings:
                 if o.strip()
             ),
             mock_models=boolean("MOCK_MODELS", "true"),
-            max_spend_usd=number("MAX_SPEND_USD", 1.10),
+            max_spend_usd=number("MAX_SPEND_USD", MAX_SPEND_USD_DEFAULT),
             max_trial_retries=number("MAX_TRIAL_RETRIES", 3, int),
             max_live_calls=number("MAX_LIVE_CALLS", 2000, int),
             chat_max_tokens=number("CHAT_MAX_TOKENS", 160, int),
@@ -118,4 +143,7 @@ class Settings:
             expected_cost_warmup=number("EXPECTED_COST_WARMUP", 0.03),
             expected_cost_primary=number("EXPECTED_COST_PRIMARY", 0.33),
             expected_cost_extension=number("EXPECTED_COST_EXTENSION", 0.20),
+            opus_truncation_gate=environ.get("OPUS_TRUNCATION_GATE", "stop").strip().lower(),
+            live_admission=environ.get("LIVE_ADMISSION", "full").strip().lower(),
+            benchmark_timeout_s=number("BENCHMARK_TIMEOUT_S", BENCHMARK_TIMEOUT_S_DEFAULT),
         )
