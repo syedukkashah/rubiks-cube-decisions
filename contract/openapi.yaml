@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: Rubik's Cube Race API
-  version: 1.2.0
+  version: 1.3.0
   description: >
-    Machine-readable mirror of AGENTS.md section 5 (contract v1.2.0).
+    Machine-readable mirror of AGENTS.md section 5 (contract v1.3.0).
     If this file and AGENTS.md disagree, AGENTS.md wins until fixed.
     Nullable fields are always present with explicit null. Responses may gain
     fields in minor versions (clients ignore unknown fields); requests with
@@ -735,11 +735,29 @@ components:
         speed: { type: number, minimum: 0.25, maximum: 20, default: 1.0 }
         include_extension: { type: boolean, default: true }
         confirm_cost: { type: boolean, default: false }
+    GateReason:
+      type: string
+      enum: [cost_over_expected, opus_truncation, run_aborted, budget]
+    StepGate:
+      type: object
+      additionalProperties: false
+      required: [passed, cost_usd, expected_cost_usd, opus_truncation_pct, reasons]
+      properties:
+        passed: { type: boolean }
+        cost_usd: { type: number, minimum: 0 }
+        expected_cost_usd: { type: number, minimum: 0 }
+        opus_truncation_pct: { type: [number, "null"], minimum: 0, maximum: 100 }
+        reasons:
+          type: array
+          items: { $ref: "#/components/schemas/GateReason" }
     BenchmarkSessionRun:
       type: object
       additionalProperties: false
-      required: [step, suite, run_id, status]
+      required: [step, suite, run_id, status, gate]
       properties:
+        gate:
+          oneOf: [{ $ref: "#/components/schemas/StepGate" }, { type: "null" }]
+          description: Evaluated after a live step finishes (AGENTS.md 5.10); null until then and always null for simulated and replay
         step: { $ref: "#/components/schemas/BenchmarkStep" }
         suite: { $ref: "#/components/schemas/Suite" }
         run_id: { type: string }
@@ -749,8 +767,9 @@ components:
     BenchmarkSession:
       type: object
       additionalProperties: false
-      required: [session_id, source, requested_source, status, speed, created_at, finished_at, replay_of_session_id, recorded_at, total_cost_usd, runs]
+      required: [session_id, source, requested_source, status, speed, created_at, finished_at, replay_of_session_id, recorded_at, total_cost_usd, stop_reason, runs]
       properties:
+        stop_reason: { enum: [null, gate] }
         session_id: { type: string }
         source: { $ref: "#/components/schemas/BenchmarkSource" }
         requested_source: { $ref: "#/components/schemas/BenchmarkRequestedSource" }
