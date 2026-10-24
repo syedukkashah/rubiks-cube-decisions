@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cube Race · Live race</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E0F11}
+a{color:#C9CDD2}a:hover{color:#FFFFFF}
+.st{transition:background-color .32s ease}
+.bar{transition:width .25s ease}
+.pulse{animation:pulse 1.2s ease-in-out infinite}
+.pop{animation:pop .28s ease-out}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes pop{0%{transform:scale(.86);opacity:.4}100%{transform:scale(1);opacity:1}}
+@media (prefers-reduced-motion:reduce){.st,.bar{transition:none}.pulse,.pop{animation:none}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0E0F11; color: #EDEEF0; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 14px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 14px 28px; border-bottom: 1px solid #24272B">
+  <div style="display: flex; align-items: center; gap: 10px">
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="0" y="0" width="10" height="10" rx="2" fill="#E0393E"></rect><rect x="12" y="0" width="10" height="10" rx="2" fill="#F2F3F5"></rect><rect x="0" y="12" width="10" height="10" rx="2" fill="#2D6BDF"></rect><rect x="12" y="12" width="10" height="10" rx="2" fill="#22A95B"></rect></svg>
+    <span style="font-weight: 700; font-size: 17px; letter-spacing: -0.01em">Cube Race</span>
+    <span style="color: #8A9198">Assignment 02</span>
+  </div>
+  <nav aria-label="Views" style="display: flex; gap: 4px; flex-wrap: wrap">
+    <a href="Setup.dc.html" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 500">Setup</a>
+    <a href="Main.dc.html" aria-current="page" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 600; background: #1D2024; color: #FFFFFF">Race</a>
+    <a href="Results.dc.html" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 500">Results</a>
+    <a href="Slide.dc.html" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 500">Slide</a>
+  </nav>
+  <div style="flex: 1 1 0"></div>
+  <div style="display: flex; align-items: center; gap: 8px; color: #A0A6AD; font-size: 13px">
+    <span class="{{liveClass}}" style="width: 8px; height: 8px; border-radius: 99px; background: {{liveDot}}"></span>
+    <span>{{liveText}}</span>
+  </div>
+  <div style="display: flex; align-items: center; gap: 12px; background: #F4F5F6; color: #0E0F11; border-radius: 10px; padding: 7px 14px">
+    <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #4A4F55">STUDENT</span>
+    <span style="font-weight: 700; font-size: 15px">[Student Name]</span>
+    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 14px">[Roll No.]</span>
+  </div>
+</header>
+
+<main style="max-width: 1440px; margin: 0 auto; padding: 24px 28px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+
+  <section style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 32px">
+    <div style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 360px">
+      <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">PRIMARY BENCHMARK · RUN_01</span>
+      <h1 style="margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.02em">Puzzle 3 of 3 <span style="color: #8A9198; font-weight: 500">· pz_03</span></h1>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; flex: 0 1 300px">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; color: #A0A6AD"><span>Trials</span><span style="font-family: 'JetBrains Mono', monospace; color: #EDEEF0">{{trialsDone}} / 12</span></div>
+      <div style="display: flex; gap: 3px">
+        <sc-for list="{{segments}}" as="seg" hint-placeholder-count="12">
+          <span class="{{seg.cls}}" style="flex: 1 1 0; height: 6px; border-radius: 2px; background: {{seg.c}}"></span>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 15px; color: #EDEEF0; min-width: 76px; text-align: right">{{clock}}</span>
+      <div role="group" aria-label="Playback speed" style="display: flex; background: #16181B; border: 1px solid #2A2E33; border-radius: 10px; padding: 3px">
+        <sc-for list="{{speeds}}" as="sp" hint-placeholder-count="3">
+          <button type="button" onClick="{{sp.pick}}" aria-pressed="{{sp.pressed}}" style="min-width: 44px; height: 38px; border: 0; border-radius: 7px; font: inherit; font-weight: 600; cursor: pointer; background: {{sp.bg}}; color: {{sp.fg}}">{{sp.label}}</button>
+        </sc-for>
+      </div>
+      <button type="button" onClick="{{togglePause}}" style="height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #2A2E33; background: #16181B; color: #EDEEF0; font: inherit; font-weight: 600; cursor: pointer">{{pauseLabel}}</button>
+      <button type="button" onClick="{{replay}}" style="height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #2A2E33; background: #16181B; color: #EDEEF0; font: inherit; font-weight: 600; cursor: pointer">Replay</button>
+      <button type="button" style="height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #5A2A30; background: transparent; color: #FF8A96; font: inherit; font-weight: 600; cursor: pointer">Cancel run</button>
+    </div>
+  </section>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+
+    <aside style="flex: 1 1 320px; max-width: 360px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+      <section style="background: #16181B; border: 1px solid #24272B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline">
+          <h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">SHARED SCRAMBLE</h2>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A9198">seed 42</span>
+        </div>
+        <div style="display: flex; justify-content: center; padding: 6px 0">
+          <div role="img" aria-label="Scrambled cube net, pz_03" style="display: grid; grid-template-columns: repeat(4, 66px); grid-template-rows: repeat(3, 66px); gap: 4px">
+            <sc-for list="{{startNet}}" as="face" hint-placeholder-count="6">
+              <div style="grid-column: {{face.col}}; grid-row: {{face.row}}; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 3px">
+                <sc-for list="{{face.st}}" as="s" hint-placeholder-count="9">
+                  <span style="border-radius: 3px; background: {{s.c}}"></span>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 12px; color: #8A9198">Scramble applied to the solved cube</span>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap">
+            <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; padding: 6px 10px; background: #1D2024; border-radius: 7px">L2</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; padding: 6px 10px; background: #1D2024; border-radius: 7px">D'</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; padding: 6px 10px; background: #1D2024; border-radius: 7px">B</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; padding: 6px 10px; background: #1D2024; border-radius: 7px">F'</span>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+          <div style="background: #1D2024; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; color: #8A9198">BFS optimum</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px">4</span></div>
+          <div style="background: #1D2024; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; color: #8A9198">Move limit</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px">30</span></div>
+          <div style="background: #1D2024; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; color: #8A9198">Metric</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 18px">HTM</span></div>
+        </div>
+        <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #A0A6AD">Same scramble, engine, move set, prompt, 6-move history, 15 s timeout and 1 retry for every model. Only the model ID changes.</p>
+      </section>
+
+      <section style="background: #16181B; border: 1px solid #24272B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">PUZZLES IN THIS RUN</h2>
+        <div style="display: grid; grid-template-columns: 64px repeat(4, minmax(0, 1fr)); gap: 6px; font-size: 12px; align-items: center">
+          <span></span>
+          <span style="color: #6EA8FE; font-weight: 600">Jev</span>
+          <span style="color: #C08CFF; font-weight: 600">Luna</span>
+          <span style="color: #3CCBDA; font-weight: 600">Clef</span>
+          <span style="color: #FF9466; font-weight: 600">Opus</span>
+          <sc-for list="{{matrix}}" as="row" hint-placeholder-count="3">
+            <span style="font-family: 'JetBrains Mono', monospace; color: #A0A6AD">{{row.id}}</span>
+            <sc-for list="{{row.cells}}" as="cell" hint-placeholder-count="4">
+              <span class="{{cell.cls}}" style="font-family: 'JetBrains Mono', monospace; font-weight: 600; padding: 5px 0; text-align: center; border-radius: 6px; background: {{cell.bg}}; color: {{cell.fg}}">{{cell.t}}</span>
+            </sc-for>
+          </sc-for>
+        </div>
+        <span style="font-size: 11px; color: #8A9198">Number = moves used when solved · ✓ marks the BFS optimum</span>
+      </section>
+    </aside>
+
+    <section aria-label="Model lanes" style="flex: 999 1 640px; min-width: 0; display: flex; flex-wrap: wrap; gap: 20px">
+      <sc-for list="{{lanes}}" as="lane" hint-placeholder-count="4">
+        <article style="flex: 1 1 440px; min-width: 0; background: #16181B; border: 1px solid {{lane.border}}; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; transition: border-color .3s ease">
+          <div style="display: flex; align-items: flex-start; gap: 12px">
+            <span style="width: 10px; height: 36px; border-radius: 4px; background: {{lane.color}}"></span>
+            <div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 0; min-width: 0">
+              <h3 style="margin: 0; font-size: 17px; font-weight: 600">{{lane.label}}</h3>
+              <span style="font-size: 12px; color: #8A9198">{{lane.sub}}</span>
+            </div>
+            <span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 99px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; background: {{lane.pillBg}}; color: {{lane.pillFg}}">
+              <span class="{{lane.pillDotCls}}" style="width: 7px; height: 7px; border-radius: 99px; background: {{lane.pillFg}}"></span>{{lane.pill}}
+            </span>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center">
+            <div role="img" aria-label="{{lane.netLabel}}" style="display: grid; grid-template-columns: repeat(4, 42px); grid-template-rows: repeat(3, 42px); gap: 3px">
+              <sc-for list="{{lane.net}}" as="face" hint-placeholder-count="6">
+                <div style="grid-column: {{face.col}}; grid-row: {{face.row}}; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 2px">
+                  <sc-for list="{{face.st}}" as="s" hint-placeholder-count="9">
+                    <span class="st" style="border-radius: 2px; background: {{s.c}}"></span>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+            <div style="flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: baseline; gap: 14px">
+                <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198; width: 54px">CURRENT MOVE</span>
+                <span key="{{lane.glyphKey}}" class="pop" style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 52px; line-height: 1; color: {{lane.glyphColor}}; min-width: 84px">{{lane.glyph}}</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #A0A6AD">{{lane.caption}}</span>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px">
+                <div style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 11px; color: #8A9198">Last call</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 15px">{{lane.lastMs}}</span></div>
+                <div style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 11px; color: #8A9198">Avg / move</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 15px">{{lane.avgMs}}</span></div>
+                <div style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 11px; color: #8A9198">Trial time</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 15px">{{lane.elapsed}}</span></div>
+                <div style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 11px; color: #8A9198">Confidence</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 15px">{{lane.conf}}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; color: #8A9198"><span>Moves used</span><span style="font-family: 'JetBrains Mono', monospace; color: #C9CDD2">{{lane.used}} / 30</span></div>
+            <div style="position: relative; height: 8px; background: #24272B; border-radius: 99px">
+              <div class="bar" style="position: absolute; left: 0; top: 0; bottom: 0; width: {{lane.progressPct}}%; background: {{lane.color}}; border-radius: 99px"></div>
+              <span title="BFS optimum: 4 moves" style="position: absolute; left: 13.33%; top: -4px; width: 2px; height: 16px; background: #EDEEF0; border-radius: 1px"></span>
+            </div>
+            <div style="position: relative; height: 14px; font-size: 10px; color: #8A9198"><span style="position: absolute; left: 13.33%; transform: translateX(-50%)">opt 4</span></div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 6px; height: 32px; overflow: hidden">
+            <sc-if value="{{lane.hasEarlier}}" hint-placeholder-val="{{ false }}">
+              <span style="font-size: 12px; color: #8A9198; padding-right: 4px; white-space: nowrap">+{{lane.earlier}}</span>
+            </sc-if>
+            <sc-for list="{{lane.chips}}" as="chip" hint-placeholder-count="6">
+              <span title="{{chip.title}}" style="display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border-radius: 7px; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; {{chip.style}}"><span style="font-size: 10px; font-weight: 500; opacity: 0.7">{{chip.n}}</span>{{chip.label}}</span>
+            </sc-for>
+            <sc-if value="{{lane.noChips}}" hint-placeholder-val="{{ false }}">
+              <span style="font-size: 12px; color: #8A9198">No moves yet</span>
+            </sc-if>
+          </div>
+
+          <div style="height: 58px; display: flex; flex-direction: column; justify-content: center">
+            <sc-if value="{{lane.waiting}}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #A0A6AD"><span>{{lane.waitLabel}}</span><span style="font-family: 'JetBrains Mono', monospace; color: #C9CDD2">{{lane.waitText}}</span></div>
+                <div style="height: 4px; background: #24272B; border-radius: 99px; overflow: hidden"><div style="height: 100%; width: {{lane.waitPct}}%; background: {{lane.waitColor}}; border-radius: 99px"></div></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{lane.done}}" hint-placeholder-val="{{ false }}">
+              <div class="pop" style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; background: {{lane.pillBg}}">
+                <sc-if value="{{lane.isSolved}}" hint-placeholder-val="{{ false }}">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3DD68C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M7.5 12.5l3 3 6-6.5"></path></svg>
+                </sc-if>
+                <sc-if value="{{lane.isLimit}}" hint-placeholder-val="{{ false }}">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F5B13D" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4.5M12 17.5v.01"></path></svg>
+                </sc-if>
+                <sc-if value="{{lane.isError}}" hint-placeholder-val="{{ false }}">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF6B7A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"></path></svg>
+                </sc-if>
+                <div style="display: flex; flex-direction: column; gap: 1px">
+                  <span style="font-weight: 700; font-size: 15px; color: {{lane.pillFg}}">{{lane.bannerTitle}}</span>
+                  <span style="font-size: 12px; color: #C9CDD2">{{lane.bannerDetail}}</span>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </article>
+      </sc-for>
+    </section>
+  </div>
+
+  <section style="background: #16181B; border: 1px solid #24272B; border-radius: 16px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap">
+      <h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: #8A9198">EVENT STREAM</h2>
+      <span style="font-size: 12px; color: #8A9198">Invalid outputs, retries and timeouts are logged, never coerced into moves</span>
+    </div>
+    <div style="height: 150px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px">
+      <sc-for list="{{events}}" as="ev" hint-placeholder-count="6">
+        <div style="display: grid; grid-template-columns: 56px 150px 190px minmax(0, 1fr); gap: 12px; padding: 3px 0; opacity: {{ev.op}}">
+          <span style="color: #8A9198">#{{ev.seq}}</span>
+          <span style="color: {{ev.tc}}">{{ev.type}}</span>
+          <span style="color: {{ev.mc}}">{{ev.who}}</span>
+          <span style="color: #C9CDD2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ev.detail}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1080}}'>
+var STK = { U: '#F2F3F5', R: '#E0393E', F: '#22A95B', D: '#F5CC2E', L: '#F28A1D', B: '#2D6BDF' };
+var NET_POS = [[2, 1], [3, 2], [2, 2], [2, 3], [1, 2], [4, 2]];
+var START = 'RRFDUURRBDRUDRUDBUFFRFFRBBRLLFDDDLLBULUULUDFDLBBLBBLFF';
+var TIMEOUT = 15000, MAX = 30, OPT = 4, HOLD = 7000;
+var C = { solved: '#3DD68C', limit: '#F5B13D', error: '#FF6B7A', run: '#8AB4FF' };
+
+function net(f) {
+  var out = [];
+  for (var i = 0; i < 6; i++) {
+    var st = [];
+    for (var j = 0; j < 9; j++) st.push({ c: STK[f.charAt(i * 9 + j)] });
+    out.push({ col: NET_POS[i][0], row: NET_POS[i][1], st: st });
+  }
+  return out;
+}
+function valid(moves, lat, conf, states) {
+  return moves.map(function (m, i) { return { ms: lat[i], move: m, conf: conf[i], f: states[i] }; });
+}
+function fmtMs(ms) { return ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms'; }
+function fmtS(ms) { return (ms / 1000).toFixed(1) + ' s'; }
+
+var CLEF_CALLS = valid(
+  ['L', 'R2', 'U', 'F', 'L2', 'U2', 'D', "U'", 'R', 'D', "F'", 'U2', 'D2', 'B2', 'U2', "F'", 'U', 'F', "L'", 'D2', 'U2', 'L2', 'B', 'U2', 'F2', "D'", 'U2', 'B', 'F', "D'"],
+  [127.3, 72.2, 116.4, 152.6, 57.1, 105.8, 111.9, 91.5, 129.3, 113.2, 72.9, 138.8, 134.2, 142.2, 156.4, 125.4, 118.4, 77.6, 132.7, 97.4, 102.0, 78.6, 87.2, 99.7, 152.1, 56.6, 73.1, 121.9, 156.5, 131.6],
+  [0.5, 0.6, 0.55, 0.39, 0.42, 0.5, 0.32, 0.44, 0.36, 0.34, 0.33, 0.53, 0.35, 0.38, 0.42, 0.56, 0.33, 0.44, 0.47, 0.57, 0.55, 0.56, 0.39, 0.43, 0.41, 0.57, 0.59, 0.35, 0.36, 0.38],
+  ['FRFBUUBRBDRUDRUDBURFRDFRRBRFLFFDDBLBDUUFLLDUULBLLBDLFL', 'FRFBUDBRBUBDURDURDRFLDFLRBLFLFFDUBLBDUUFLLDUURBLRBDRFL', 'BBFRURBDFRBLURDURDUBDDFLRBLFLFFDUBLBRFLFLLDUUDUURBDRFL', 'BBFRURULLBBLDRDFRDRDUBFBLLDUURFDUBLBRFFFLLDUFDUURBDRFL', 'UBFFURBLLBBLDRDFRDLDUDFBULDBURRDUULBFUDLLFFFRDULRBBRFR', 'LLBRUFFBUFUDDRDFRDDULDFBULDBURRDUULBBBLLLFFFRLDURBBRFR', 'LLBRUFFBUFUDDRDULDDULDFBFFRURBLDUBURBBLLLFRFRLDURBBFRD', 'BFULUBLRFDULDRDULDBBLDFBFFRURBLDUBURLDULLFRFRFUDRBBFRD', 'BFLLUBLRRUDDLRUDDLBBBDFUFFRURFLDRBUFLDULLFRFRFUDBBBURD', 'BFLLUBLRRUDDLRUFFRBBBDFURFRBLUUDRFRFLDULLFURDFUDBBBDDL', 'BFLLUBULFUDDLRUBFRBURBFFBDRUFDUDRFRFLDRLLRURLFUDBBBDDL', 'FLUBULLFBLDRLRUBFRFUDBFFBDRUFDUDRFRFUDDLLRURLBURBBBDDL', 'FLUBULLFBLDRLRUURLFUDBFFDDLFRFRDUDFUUDDLLRBFRBURBBBBDR', 'UFDBULLFBLDBLRLURUFUDBFFDDLFRFRDUULFLDDULRRFRRDBBBBRUB', 'BFLLUBDFULDDLRLURURDBBFFDDLFRFRDUULFLDBULRRFRFUDBBBRUB', 'BFLLUBLLUFDDRRLFRUBFLDFDRBDBRRRDUULFLDUULFRFDFUDBBBRUB', 'LLBLUFUBLFUDRRLFRUFDDDFDRBDBRRRDUULFBFLULFRFDLDUBBBRUB', 'LLBLUFDFLUUDBRLLRURDFBFDDDDFRFRDUULFBFBULRRFRLDUBBBRUB', 'RLBBUFDFLUUDBRLLRUFDFRFDUDDBRFBDUULFBRRFLFBURLDDBBLRUL', 'RLBBUFDFLUUDBRLBURFDFRFDRULFLUUDBFRBBRRFLFLRULDDBBLUDD', 'LFDFUBBLRBRRBRLBURLDDRFDRULFLUUDBFRBUUDFLFLRUFDFBBLUDD', 'FFDUUBFLRBRRBRLBURDDDLFDFULLLUFDBBRBURLFLFDUUFDRBBRUDL', 'RLRUUBFLRBRBBRRBUBDDDLFDFULLLUFDBUFDDRLFLFFUUUBFDBDLRR', 'RLFBUURLRDRLBRRBUBUBFLFDFULLLUFDBUFDBRBFLFFUUDDDDBDLRR', 'RLFBUUULLURLFRRBUBLUFDFLFBURLRFDBUFDBRBFLBFUDDDDDBDLRR', 'RLFBUUULLURLFRRLRRLUFDFLBUBRBDLDFRFUBRBFLBFBUDDDDBDFUD', 'LLUUUBFLRBRBFRRLRRDDDDFLBUBRBDLDFRFUURLFLBFBULUFDBDFUD', 'BRRUUBFLRBRUFRFLRRDDDDFLBUBRBDLDFUFFURLLLBLBUFDLUBUDDF', 'BRRUUBUBLFRULRFRRRBDDUFDBLDLFBLDFUFFURRLLBLBDFDLUBUDDF', 'BRRUUBUBLFRULRFDDFBDDUFDRRRBFFFDFLLUURRLLBBLDFDLUBULBD']
+);
+CLEF_CALLS.splice(11, 0, { ms: 88.4, invalid: 'illegal_move', raw: 'R3' });
+
+var LANES = [
+  { id: 'jev', label: 'Jev 1.13', short: 'Jev', sub: 'System-1 decision · Decisions API', color: '#6EA8FE', end: 'solved',
+    calls: valid(['F', "B'", 'D', 'L', 'L'], [171.0, 154.0, 168.6, 226.9, 158.9], [0.71, 0.64, 0.58, 0.52, 0.49],
+      ['RRFDUUDUURRURRUBBUBFFBFFRRRDDDDDDLLBULLULLDFFLBBLBBLFF', 'DUUDUUDUURRRRRRBBFBFFBFFRRRDDDDDDUUULLLLLLBFFBBFBBFLLL', 'DUUDUUDUURRRRRRRRRBFFBFFBFFUDDUDDUDDLLLLLLLLLBBFBBFBBF', 'FUUFUUFUURRRRRRRRRDFFDFFDFFBDDBDDBDDLLLLLLLLLBBUBBUBBU', 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB']) },
+  { id: 'luna', label: 'GPT-6 Luna Decisions', short: 'Luna', sub: 'System-1 decision · Decisions API', color: '#C08CFF', end: 'error',
+    calls: valid(['F'], [386.2], [null], ['RRFDUUDUURRURRUBBUBFFBFFRRRDDDDDDLLBULLULLDFFLBBLBBLFF']).concat([
+      { ms: TIMEOUT, invalid: 'timeout', raw: null }, { ms: TIMEOUT, invalid: 'timeout', raw: null }]) },
+  { id: 'clef', label: 'Cloudflare Clef', short: 'Clef', sub: 'System-1 decision · Decisions API', color: '#3CCBDA', end: 'limit', calls: CLEF_CALLS },
+  { id: 'opus', label: 'Claude Opus 5.5', short: 'Opus', sub: 'Frontier LLM · Chat completions', color: '#FF9466', end: 'solved',
+    calls: valid(['F', "B'", 'D', 'L2'], [5998.4, 6725.9, 5443.6, 5618.7], [null, null, null, null],
+      ['RRFDUUDUURRURRUBBUBFFBFFRRRDDDDDDLLBULLULLDFFLBBLBBLFF', 'DUUDUUDUURRRRRRBBFBFFBFFRRRDDDDDDUUULLLLLLBFFBBFBBFLLL', 'DUUDUUDUURRRRRRRRRBFFBFFBFFUDDUDDUDDLLLLLLLLLBBFBBFBBF', 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB']) }
+];
+
+var EVENTS = (function () {
+  var evs = [];
+  LANES.forEach(function (L, li) {
+    evs.push({ at: 0, li: li, type: 'trial_started', detail: 'pz_03 · same initial facelets' });
+    var t = 0, n = 0, att = 1;
+    L.calls.forEach(function (c) {
+      t += c.ms;
+      if (c.move) { n++; att = 1; evs.push({ at: t, li: li, type: 'move_applied', detail: 'move ' + n + ' · ' + c.move + ' · ' + fmtMs(c.ms) + (c.conf != null ? ' · conf ' + c.conf.toFixed(2) : '') }); }
+      else { evs.push({ at: t, li: li, type: 'move_invalid', detail: 'move ' + (n + 1) + ' · attempt ' + att + ' · ' + c.invalid + (c.raw ? ' · raw "' + c.raw + '"' : ''), bad: true }); att++; }
+    });
+    var status = L.end === 'solved' ? 'solved' : L.end === 'limit' ? 'move_limit' : 'error';
+    evs.push({ at: t + 1, li: li, type: 'trial_finished', detail: 'status ' + status + ' · ' + n + ' moves · ' + fmtS(t), fin: L.end });
+    L.total = t;
+  });
+  evs.sort(function (a, b) { return a.at - b.at || a.li - b.li; });
+  evs.forEach(function (e, i) { e.seq = 287 + i; });
+  return evs;
+})();
+var TOTAL = Math.max.apply(null, LANES.map(function (L) { return L.total; })) + 1;
+
+var STATUS_STYLE = {
+  run: { fg: C.run, bg: 'rgba(138,180,255,0.12)' },
+  solved: { fg: C.solved, bg: 'rgba(61,214,140,0.12)' },
+  limit: { fg: C.limit, bg: 'rgba(245,177,61,0.13)' },
+  error: { fg: C.error, bg: 'rgba(255,107,122,0.13)' }
+};
+
+function laneAt(L, t) {
+  var cum = 0, applied = [], chips = [], att = 1, lastMs = null, sum = 0, waitStart = 0, conf = null, timeouts = 0, lastBad = null, busy = false;
+  for (var i = 0; i < L.calls.length; i++) {
+    var c = L.calls[i], end = cum + c.ms;
+    if (end > t) { waitStart = cum; busy = true; break; }
+    if (c.move) { applied.push(c); chips.push({ label: c.move, n: applied.length, bad: false, ms: c.ms }); lastMs = c.ms; sum += c.ms; att = 1; conf = c.conf; lastBad = null; }
+    else { chips.push({ label: c.raw ? c.raw : 'timeout', n: '', bad: true, reason: c.invalid }); if (c.invalid === 'timeout') timeouts++; att++; lastBad = c; }
+    cum = end;
+  }
+  var n = applied.length, done = !busy;
+  var kind = done ? L.end : 'run';
+  var s = STATUS_STYLE[kind];
+  var trialMs = done ? cum : t;
+  var shown = chips.slice(-9);
+  var waitMs = t - waitStart;
+  var glyph = n ? applied[n - 1].move : '—';
+  var gap = n - OPT;
+  var bannerTitle = '', bannerDetail = '';
+  if (kind === 'solved') { bannerTitle = 'Solved in ' + n + ' moves'; bannerDetail = 'Optimum ' + OPT + ' · gap ' + (gap === 0 ? '0 (optimal)' : '+' + gap) + ' · ' + fmtS(cum); }
+  if (kind === 'limit') { bannerTitle = 'Move limit reached'; bannerDetail = MAX + ' / ' + MAX + ' valid moves · cube not solved · ' + fmtS(cum); }
+  if (kind === 'error') { bannerTitle = 'Error · retries exhausted'; bannerDetail = 'upstream_timeout on move ' + (n + 1) + ' · ' + timeouts + ' timeouts · ' + fmtS(cum); }
+  var pill = kind === 'run' ? (att > 1 ? 'Retrying' : 'Thinking') : kind === 'solved' ? 'Solved' : kind === 'limit' ? 'Move limit' : 'Error';
+  return {
+    key: L.id, label: L.label, sub: L.sub, color: L.color,
+    border: kind === 'run' ? '#24272B' : s.fg + '55',
+    pill: pill, pillFg: s.fg, pillBg: s.bg, pillDotCls: kind === 'run' ? 'pulse' : '',
+    net: net(n ? applied[n - 1].f : START),
+    netLabel: L.label + ' cube after ' + n + ' moves',
+    glyph: glyph, glyphKey: L.id + '-' + n, glyphColor: n ? '#FFFFFF' : '#5A6068',
+    caption: done ? n + ' moves' : 'next: move ' + (n + 1),
+    lastMs: lastMs != null ? fmtMs(lastMs) : '—',
+    avgMs: n ? fmtMs(sum / n) : '—',
+    elapsed: fmtS(trialMs),
+    conf: conf != null ? conf.toFixed(2) : (L.id === 'opus' ? 'not supplied' : '—'),
+    used: n, progressPct: (n / MAX * 100).toFixed(2),
+    chips: shown.map(function (ch, idx) {
+      var latest = idx === shown.length - 1 && !ch.bad;
+      var style = ch.bad
+        ? 'background: transparent; border: 1px dashed #FF6B7A; color: #FF8A96; text-decoration: line-through'
+        : latest ? 'background: ' + L.color + '26; border: 1px solid ' + L.color + '; color: #FFFFFF' : 'background: #1D2024; border: 1px solid #1D2024; color: #C9CDD2';
+      return { label: ch.label, n: ch.n, style: style, title: ch.bad ? 'Invalid output (' + ch.reason + ') — logged, not applied' : 'Move ' + ch.n + ' · ' + fmtMs(ch.ms) };
+    }),
+    hasEarlier: chips.length > 9, earlier: chips.length - 9, noChips: chips.length === 0,
+    waiting: !done, done: done,
+    waitLabel: att > 1 ? 'Retry · attempt ' + att + ' of 2 after ' + lastBad.invalid : 'Waiting for move ' + (n + 1) + ' · attempt 1 of 2',
+    waitText: fmtS(waitMs) + ' / 15 s',
+    waitPct: Math.min(100, waitMs / TIMEOUT * 100).toFixed(1),
+    waitColor: waitMs > TIMEOUT * 0.66 ? C.limit : L.color,
+    isSolved: kind === 'solved', isLimit: kind === 'limit', isError: kind === 'error',
+    bannerTitle: bannerTitle, bannerDetail: bannerDetail,
+    kind: kind, n: n
+  };
+}
+
+var PREV = [
+  { id: 'pz_01', cells: [['5', 'solved'], ['4 ✓', 'solved'], ['4 ✓', 'solved'], ['4 ✓', 'solved']] },
+  { id: 'pz_02', cells: [['5 ✓', 'solved'], ['6', 'solved'], ['6', 'solved'], ['5 ✓', 'solved']] }
+];
+
+class Component extends DCLogic {
+  componentDidMount() {
+    var self = this;
+    this._last = Date.now();
+    this._iv = setInterval(function () {
+      var now = Date.now(), dt = now - self._last;
+      self._last = now;
+      var s = self.state || {};
+      if (s.paused) return;
+      var t = (s.t || 0) + dt * (s.speed || 1);
+      if (t > TOTAL + HOLD) t = 0;
+      self.setState({ t: t });
+    }, 80);
+  }
+  componentWillUnmount() { clearInterval(this._iv); }
+  renderVals() {
+    var self = this;
+    var s = this.state || {};
+    var t = s.t || 0, speed = s.speed || 1;
+    var lanes = LANES.map(function (L) { return laneAt(L, t); });
+    var doneCount = lanes.filter(function (l) { return l.done; }).length;
+    var allDone = doneCount === 4;
+    var segments = [];
+    for (var i = 0; i < 8; i++) segments.push({ c: '#4E545B', cls: '' });
+    lanes.forEach(function (l) { segments.push({ c: l.done ? STATUS_STYLE[l.kind].fg : C.run, cls: l.done ? '' : 'pulse' }); });
+    var matrix = PREV.map(function (r) {
+      return { id: r.id, cells: r.cells.map(function (c) { return { t: c[0], fg: STATUS_STYLE[c[1]].fg, bg: STATUS_STYLE[c[1]].bg, cls: '' }; }) };
+    });
+    matrix.push({ id: 'pz_03', cells: lanes.map(function (l) {
+      var txt = l.kind === 'run' ? '…' : l.kind === 'solved' ? l.n + (l.n === OPT ? ' ✓' : '') : l.kind === 'limit' ? 'limit' : 'error';
+      var st = STATUS_STYLE[l.kind];
+      return { t: txt, fg: st.fg, bg: st.bg, cls: l.kind === 'run' ? 'pulse' : '' };
+    }) });
+    var past = EVENTS.filter(function (e) { return e.at <= t; });
+    var events = past.slice(-6).reverse().map(function (e, i) {
+      var L = LANES[e.li];
+      var tc = e.bad ? C.error : e.type === 'trial_finished' ? STATUS_STYLE[e.fin].fg : e.type === 'trial_started' ? '#8A9198' : '#C9CDD2';
+      return { seq: e.seq, type: e.type, who: L.label, mc: L.color, detail: e.detail, tc: tc, op: (1 - i * 0.12).toFixed(2) };
+    });
+    var clockMs = Math.min(t, TOTAL);
+    var mm = Math.floor(clockMs / 60000), ss = ((clockMs % 60000) / 1000).toFixed(1);
+    return {
+      lanes: lanes, segments: segments, matrix: matrix, events: events,
+      startNet: net(START),
+      trialsDone: 8 + doneCount,
+      clock: mm + ':' + (ss < 10 ? '0' : '') + ss,
+      liveText: allDone ? 'Run complete · stream closed' : 'Live · SSE connected',
+      liveDot: allDone ? C.solved : C.run,
+      liveClass: allDone ? '' : 'pulse',
+      pauseLabel: s.paused ? 'Play' : 'Pause',
+      togglePause: function () { self.setState({ paused: !s.paused }); },
+      replay: function () { self.setState({ t: 0, paused: false }); },
+      speeds: [1, 4, 10].map(function (v) {
+        var on = v === speed;
+        return { label: v + '×', pressed: on ? 'true' : 'false', bg: on ? '#2A2E33' : 'transparent', fg: on ? '#FFFFFF' : '#A0A6AD', pick: function () { self.setState({ speed: v }); } };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>
