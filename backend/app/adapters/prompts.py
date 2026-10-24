@@ -1,24 +1,12 @@
 from app.engine import MOVES
 
-INSTRUCTIONS = (
-    "Choose exactly one next move to solve this 3x3 Rubik's Cube in as few HTM moves "
-    "as possible. cube_facelets uses URFDLB face order, nine row-major stickers per face "
-    "as seen from outside. Each letter denotes its home centre colour. "
-    "The goal is six uniform faces. recent_moves lists the most recently applied moves. "
-    "Use only one of the supplied choices. Clockwise is viewed from outside the turned face."
-)
-FACE_NAMES = {"U": "up", "D": "down", "L": "left", "R": "right", "F": "front", "B": "back"}
+INSTRUCTIONS = "Min moves.URFDLB:9 row-major/face;letters=centres;CW/CCW=90,outside."
+SHORT_ANSWER = 'Reply immediately with only {"move":"<one allowed move>"}. No explanation.'
 CRITERIA = {
-    move: f"Turn the {FACE_NAMES[move[0]]} face "
-    + (
-        "180 degrees."
-        if move.endswith("2")
-        else "90 degrees counter-clockwise."
-        if move.endswith("'")
-        else "90 degrees clockwise."
-    )
-    for move in MOVES
+    move: "180" if move.endswith("2") else "CCW" if move.endswith("'") else "CW" for move in MOVES
 }
+# Equivalent to the 18-value enum, including rejection of trailing newlines.
+MOVE_PATTERN = r"^[UDLRFB]['2]?(?![\s\S])"
 
 
 def state_payload(state: str, recent_moves: list[str]) -> dict:

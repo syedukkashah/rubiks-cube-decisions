@@ -1,12 +1,14 @@
 import asyncio
-from random import Random
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.engine import SUITE_RANGES, scramble
-from app.runner.service import new_id
+from app.puzzles import generate_puzzles
+from app.runner.service import RunConflict
 from app.schemas import (
+    BenchmarkInfo,
+    BenchmarkSession,
+    BenchmarkSessionRequest,
     Health,
     ModelsResponse,
     Puzzle,
@@ -20,9 +22,7 @@ from app.schemas import (
     RunSummary,
     StatsResponse,
     Suite,
-    utc_now,
 )
-from app.solver import shortest_distance
 from app.stats import compute_stats
 
 
@@ -67,32 +67,11 @@ async def models(request: Request):
     return ModelsResponse(models=registry.models)
 
 
-def generate_puzzles(body: PuzzleRequest) -> list[Puzzle]:
-    rng = Random(body.seed)
-    puzzles = []
-    for _ in range(body.count):
-        length = body.scramble_length
-        if length is None:
-            length = rng.randint(*SUITE_RANGES[body.suite])
-        moves, facelets = scramble(rng, length)
-        puzzles.append(
-            Puzzle(
-                puzzle_id=new_id("pz"),
-                suite=body.suite,
-                scramble_moves=moves,
-                facelets=facelets,
-                optimal_distance=shortest_distance(facelets) if body.suite != "extension" else None,
-                created_at=utc_now(),
-            )
-        )
-    return puzzles
-
-
 @router.post("/puzzles", status_code=201, response_model=PuzzlesResponse)
 async def create_puzzles(body: PuzzleRequest, request: Request):
     # Exact search must not block the event loop (especially live heartbeats/cancellation).
     puzzles = await asyncio.to_thread(generate_puzzles, body)
-    service(request).puzzles.update({puzzle.puzzle_id: puzzle for puzzle in puzzles})
+    service(request).add_puzzles(puzzles)
     return PuzzlesResponse(puzzles=puzzles)
 
 
@@ -114,6 +93,14 @@ async def get_puzzle(puzzle_id: str, request: Request):
 @router.post("/runs", status_code=202, response_model=RunAccepted)
 async def create_run(body: RunConfig, request: Request):
     settings = request.app.state.settings
+    for field, limit in (
+        ("timeout_s", settings.max_timeout_s),
+        ("max_retries", settings.max_retries_cap),
+    ):
+        if getattr(body, field) > limit:
+            raise APIError(
+                422, "validation_error", f"{field} exceeds configured cap", {"field": field}
+            )
     if not settings.mock_models and not settings.api_key:
         raise APIError(503, "missing_api_key", "OPENROUTER_API_KEY is not configured")
     if any(puzzle_id not in service(request).puzzles for puzzle_id in body.puzzle_ids):
@@ -123,7 +110,10 @@ async def create_run(body: RunConfig, request: Request):
     available = {model.id for model in registry.models if model.available}
     if any(model_id not in available for model_id in body.model_ids):
         raise APIError(409, "conflict", "One or more requested models are unavailable")
-    state = service(request).start(body)
+    try:
+        state = await service(request).submit(body)
+    except RunConflict as error:
+        raise APIError(409, "conflict", str(error), error.details) from None
     return RunAccepted(run_id=state.snapshot.run_id)
 
 
@@ -183,3 +173,27 @@ async def events(run_id: str, request: Request):
 @router.get("/runs/{run_id}/stats", response_model=StatsResponse)
 async def stats(run_id: str, request: Request):
     return compute_stats(get_run(request, run_id).snapshot)
+
+
+@router.get("/benchmark", response_model=BenchmarkInfo)
+async def benchmark_info(request: Request):
+    return request.app.state.sessions.info()
+
+
+@router.post("/benchmark/sessions", status_code=202, response_model=BenchmarkSession)
+async def create_session(body: BenchmarkSessionRequest, request: Request):
+    state = await request.app.state.sessions.submit(body)
+    return state.snapshot
+
+
+@router.get("/benchmark/sessions/{session_id}", response_model=BenchmarkSession)
+async def session_snapshot(session_id: str, request: Request):
+    return request.app.state.sessions.get(session_id).snapshot
+
+
+@router.post("/benchmark/sessions/{session_id}/cancel", response_model=BenchmarkSession)
+async def cancel_session(session_id: str, request: Request):
+    manager = request.app.state.sessions
+    state = manager.get(session_id)
+    await manager.cancel(state)
+    return state.snapshot

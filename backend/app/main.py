@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 import httpx
@@ -7,14 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from app.adapters.chat_completions import ChatAdapter
-from app.adapters.decisions_api import DecisionsAdapter
+from app.adapters.factory import real_adapter
 from app.adapters.mock import MockAdapter
 from app.adapters.registry import ModelRegistry
 from app.api.routes import APIError, router
+from app.budget import SpendLedger
 from app.config import Settings
 from app.runner.service import BenchmarkService
 from app.schemas import ErrorDetail, ErrorEnvelope
+from app.sessions import SessionError, SessionManager
+from app.storage import RunStore
 
 
 class UTF8JSONResponse(JSONResponse):
@@ -39,27 +42,34 @@ def create_app(settings: Settings | None = None, adapter_factory=None, transport
 
     @asynccontextmanager
     async def lifespan(app):
+        logging.getLogger(__name__).warning("MOCK MODE" if settings.mock_models else "LIVE MODE")
         async with httpx.AsyncClient(transport=transport) as client:
             registry = ModelRegistry(client, settings.mock_models)
 
             def factory(model_id, puzzle):
                 if settings.mock_models:
                     return MockAdapter(puzzle.scramble_moves)
-                adapter = (
-                    ChatAdapter if model_id == "anthropic/claude-opus-5.5" else DecisionsAdapter
-                )
-                return adapter(model_id, client, settings.api_key)
+                return real_adapter(model_id, client, settings)
 
             app.state.registry = registry
-            app.state.service = BenchmarkService(adapter_factory or factory, settings.api_key)
+            ledger = None if settings.mock_models else SpendLedger(settings)
+            app.state.service = BenchmarkService(
+                adapter_factory or factory,
+                settings.api_key,
+                settings,
+                ledger,
+                RunStore(settings.runs_dir),
+            )
+            app.state.sessions = SessionManager(app.state.service, registry)
             try:
                 yield
             finally:
+                await app.state.sessions.close()
                 await app.state.service.close()
 
     app = FastAPI(
         title="Rubik's Cube Race",
-        version="1.0.0",
+        version="1.3.0",
         lifespan=lifespan,
         default_response_class=UTF8JSONResponse,
     )
@@ -72,6 +82,7 @@ def create_app(settings: Settings | None = None, adapter_factory=None, transport
     )
 
     @app.exception_handler(APIError)
+    @app.exception_handler(SessionError)
     async def api_error(request: Request, error: APIError):
         return error_response(error.status, error.code, error.message, error.details)
 

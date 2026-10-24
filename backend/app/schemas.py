@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 from app.engine import SUITE_RANGES
 
@@ -71,7 +71,7 @@ class ErrorEnvelope(Schema):
 
 class Health(Schema):
     status: Literal["ok"] = "ok"
-    contract_version: Literal["1.0.0"] = "1.0.0"
+    contract_version: Literal["1.3.0"] = "1.3.0"
     api_key_configured: bool
 
 
@@ -120,8 +120,8 @@ class RunConfig(Schema):
         default_factory=lambda: list(MODEL_IDS)
     )
     max_moves: Annotated[StrictInt, Field(ge=1, le=30)] = 30
-    timeout_s: Annotated[float, Field(gt=0, strict=True)] = 60
-    max_retries: Annotated[StrictInt, Field(ge=0)] = 2
+    timeout_s: Annotated[float, Field(gt=0, strict=True)] = 15
+    max_retries: Annotated[StrictInt, Field(ge=0)] = 1
     history_window: Annotated[StrictInt, Field(ge=0)] = 6
     concurrency: Annotated[StrictInt, Field(ge=1, le=4)] = 1
 
@@ -290,3 +290,82 @@ class StatsResponse(Schema):
     run_status: RunStatus
     models: list[ModelStats]
     questions_answered: QuestionsAnswered
+
+
+BenchmarkSource = Literal["simulated", "live", "replay"]
+BenchmarkRequestedSource = Literal["auto", "simulated", "live", "replay"]
+GateReason = Literal["cost_over_expected", "opus_truncation", "run_aborted", "budget"]
+
+
+class PlanStep(Schema):
+    step: Suite
+    suite: Suite
+    count: int = Field(ge=1)
+    seed: int
+    max_moves: int = Field(default=30, ge=1, le=30)
+    optional: bool = False
+
+
+class Recording(Schema):
+    recording_id: str
+    recorded_at: str
+    session_id: str
+    trial_count: int = Field(ge=0)
+    total_cost_usd: float | None = Field(ge=0)
+
+
+class BenchmarkSources(Schema):
+    simulated: bool = True
+    live: bool
+    replay: bool
+
+
+class BenchmarkInfo(Schema):
+    plan: list[PlanStep]
+    sources: BenchmarkSources
+    auto_source: Literal["simulated", "replay"]
+    recording: Recording | None
+
+
+class BenchmarkSessionRequest(Schema):
+    source: BenchmarkRequestedSource = "auto"
+    speed: float = Field(default=1.0, ge=0.25, le=20, strict=True)
+    include_extension: StrictBool = True
+    confirm_cost: StrictBool = False
+
+    @model_validator(mode="after")
+    def live_confirmation(self):
+        if self.source == "live" and not self.confirm_cost:
+            raise ValueError("Live sessions require confirm_cost=true")
+        return self
+
+
+class StepGate(Schema):
+    passed: bool
+    cost_usd: float = Field(ge=0)
+    expected_cost_usd: float = Field(ge=0)
+    opus_truncation_pct: float | None = Field(ge=0, le=100)
+    reasons: list[GateReason]
+
+
+class BenchmarkSessionRun(Schema):
+    step: Suite
+    suite: Suite
+    run_id: str
+    status: Literal["queued", "running", "completed", "cancelled", "failed", "skipped"]
+    gate: StepGate | None = None
+
+
+class BenchmarkSession(Schema):
+    session_id: str
+    source: BenchmarkSource
+    requested_source: BenchmarkRequestedSource
+    status: RunStatus
+    speed: float
+    created_at: str
+    finished_at: str | None = None
+    replay_of_session_id: str | None = None
+    recorded_at: str | None = None
+    total_cost_usd: float | None = Field(default=None, ge=0)
+    stop_reason: Literal["gate"] | None = None
+    runs: list[BenchmarkSessionRun]

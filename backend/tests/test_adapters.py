@@ -1,4 +1,5 @@
 import json
+import re
 
 import httpx
 import pytest
@@ -49,7 +50,7 @@ async def test_decisions_wire_format_and_confidence():
     "content,expected",
     [
         ('{"move":"R"}', "R"),
-        ('{"move":"R3"}', "R3"),
+        ('{"move":"R3"}', None),
         ('```json\n{"move":"R"}\n```', None),
         ('{"move":"R","extra":true}', None),
         ('{"move":42}', None),
@@ -61,9 +62,9 @@ async def test_chat_strict_parsing(content, expected):
         body = json.loads(request.content)
         assert request.url.path == "/api/v1/chat/completions"
         assert body["messages"][0]["content"].startswith(INSTRUCTIONS)
-        assert body["response_format"]["json_schema"]["schema"]["properties"]["move"]["enum"] == (
-            list(MOVES)
-        )
+        pattern = body["response_format"]["json_schema"]["schema"]["properties"]["move"]["pattern"]
+        assert all(re.search(pattern, move) for move in MOVES)
+        assert not re.search(pattern, "R3")
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:

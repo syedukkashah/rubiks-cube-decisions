@@ -19,4 +19,4 @@ class MockAdapter:
     async def choose_move(self, state, recent_moves, allowed_moves, timeout_s):
         await asyncio.sleep(0)
         move = self.moves.popleft() if self.moves else allowed_moves[0]
-        return MoveChoice(move, 1.0, 1.0, json.dumps({"move": move}))
+        return MoveChoice(move, None, 1.0, json.dumps({"move": move}))

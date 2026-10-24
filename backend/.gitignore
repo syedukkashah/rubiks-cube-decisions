@@ -8,3 +8,5 @@ __pycache__/
 *.pyc
 htmlcov/
 .coverage
+.spend/
+.runs/
