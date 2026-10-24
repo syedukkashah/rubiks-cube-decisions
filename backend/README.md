@@ -80,16 +80,17 @@ they are never repaired. Illegal strings are rejected by the runner. The cap can
 limit Opus quality: report this configuration, measured output/reasoning averages,
 and truncation counts in the written analysis.
 
-**Live verification is pending:** no paid inference was run during implementation.
-Record these after the human-run smoke/calibration steps:
+**Live verification is partial:** one authorized Opus probe succeeded after the
+temperature and regex fixes, but exceeded the input-token guard. Calibration and
+the benchmark remain paused. These are single-probe observations, not averages:
 
 | Measurement | Current value |
 |---|---|
-| Opus prompt tokens (must be ≤250) | Pending live smoke |
-| Opus completion / reasoning tokens per call | Pending calibration |
-| Opus actual cost per call | Pending calibration |
+| Opus prompt tokens (must be ≤250) | 480; guard failed |
+| Opus completion / reasoning tokens per call | 11 / 0 reported on one probe; calibration pending |
+| Opus actual cost per call | $0.00214 on one probe; calibration pending |
 | Calibrated `CHAT_MAX_TOKENS` | Pending; provisional 160 |
-| Successful provider and `low`/`omit` variant | Pending; configured low |
+| Successful provider and `low`/`omit` variant | Claude Platform on AWS; low |
 | Temperature compatibility | Omitted under G2; endpoint metadata excludes temperature (2026-10-24) |
 
 G2 allows one **smoke-only** compatibility retry after a reasoning-related 400:
@@ -106,9 +107,8 @@ lists no endpoint supporting `temperature`. Under OpenRouter's
 our `temperature: 0` therefore excludes every listed endpoint. Following the G2
 exception, the adapter now omits temperature. It retains `require_parameters: true`,
 the same strict schema, low reasoning effort, token cap and price limits.
-Offline tests cover routing against the advertised parameter set. Successful live
-inference after this fix is still pending; no token/provider response has yet
-confirmed compatibility of the remaining settings.
+Offline tests cover routing against the advertised parameter set. The next live
+probe reached Azure and exposed the schema issue described below.
 
 **Schema compatibility fix (2026-10-24):** one authorized Opus-only probe after
 the temperature fix reached Azure but returned HTTP 400:
@@ -118,9 +118,10 @@ The original pattern used negative lookahead. Anthropic's
 exclude lookahead/lookbehind, so the request now uses only supported anchors,
 character classes and an optional suffix. Strict object fields and exact backend
 move validation remain in force; no invalid output is trimmed or coerced. The
-full request remains under 1,100 characters. Live verification of this second
-compatibility fix is pending. Failed probes remain conservatively accounted for
-in the existing ledger; no further inference is automatically attempted.
+full request remains under 1,100 characters. A subsequent authorized single probe
+returned `R'` with `finish_reason: stop`; it failed only the 250-input-token guard.
+Failed probes remain conservatively accounted for in the existing ledger; no
+further inference is automatically attempted.
 
 Documentation used for the request shape and usage accounting:
 
@@ -144,13 +145,19 @@ Run admission estimates each model's worst case as:
 ```text
 attempts_per_trial = min(max_moves + MAX_TRIAL_RETRIES,
                          max_moves * (max_retries + 1))
-per_call_usd = (300 * input_price + output_cap * output_price) / 1_000_000
+input_estimate[model] = max(300, largest saved input-token count for that model)
+per_call_usd = (input_estimate[model] * input_price + output_cap * output_price) / 1_000_000
 run_estimate = puzzle_count * attempts_per_trial * sum(per_model_call_cost)
 ```
 
 Prices are centralized in `app/config.py`. Decisions use output cap zero; chat
-uses the current `CHAT_MAX_TOKENS`. At 160, the five-puzzle primary estimate is
-$0.744909. Before first live use, verify the reference prices against OpenRouter.
+uses the current `CHAT_MAX_TOKENS`. With no observations, the five-puzzle primary
+estimate at 160 is $0.744909. Existing ledger measurements increase it immediately;
+the baseline is not used when a larger count is already known. Run admission,
+required-session admission, next-step gates and individual call reservations all
+use the same model-specific estimates. They are restored from the ledger after
+restart and never lowered by a smaller later response. Before live use, verify
+the reference prices against OpenRouter.
 HTTP 409 reports `estimated_max_cost_usd` and `remaining_budget_usd` if over budget.
 
 One live run may be active at a time (409 includes `active_run_id`). A completed
@@ -167,8 +174,34 @@ This makes retries and abandoned calls survive restart without duplicate rows.
 Before each call, the ledger checks both caps and reserves its estimated cost;
 availability checks are free and are not counted. A malformed ledger fails closed.
 The run-finished INFO line includes calls, usage spend and remaining budget.
-The 300-input-token allowance is an estimate, not a provider billing guarantee;
-inspect measured prompt size before proceeding with the paid plan.
+Both the initial 300-token allowance and the later observed maxima are estimates,
+not guarantees about future prompts. Cube states, longer history and provider
+schema overhead can change input-token counts. Missing-cost settlement retains
+at least the reservation's input allowance; missing cost never resets an estimate
+to 300. Reported actual charges remain unchanged. Malformed saved token counts
+fail closed instead of silently lowering the estimate.
+
+### Current prompt and budget review (2026-10-24)
+
+The corrected request measures 1,030 characters with empty history and 1,071 with
+six two-character moves, under the 1,100-character limit. Its message text alone
+is 423 / 452 characters. Character length does not establish billed token count:
+the successful probe reported 480 input tokens. Anthropic documents additional
+schema instructions for structured output; the precise overhead split was not
+returned. The compact shared wording, state fields, all 18 move definitions,
+strict schema and required short-answer line remain unchanged. We cannot verify
+that another shortening would meet 250 billed tokens without another live call.
+The 250-token smoke guard is still enforced; changing that requirement needs a
+human decision. No prompt, output-token or spend limit has been raised.
+
+With observed input counts Jev 594, Luna 283, Clef 483 and Opus 480, planning uses
+594 / 300 / 483 / 480 (300 remains the minimum). The required warm-up plus primary
+estimate is **$1.047591864** at output cap 160, exceeding the then-remaining ledger
+budget **$0.975786466**. The session is now correctly refused before model calls.
+For illustration only, output cap 128 would yield **$0.920871864** using the same
+input estimates, before any further calibration spending or larger observations.
+This is not a calibrated recommendation: `.env` remains unchanged, and one short
+successful response does not establish the output budget needed for harder states.
 
 `.runs/` stores puzzles, snapshots, full SSE logs, live/mock provenance and internal
 token/finish metadata. Each event flushes through a temporary file and atomic
@@ -281,7 +314,8 @@ invalid model response, not proof of an HTTP failure.
    set the key and `MOCK_MODELS=false`, and restart. Choose the separate Run live
    action and confirm cost (`source: "live", confirm_cost: true`). Warm-up plus
    primary must pass their combined pre-check before anything starts. At the
-   provisional 160-token cap this requires about $0.894 remaining. Successful
+   provisional 160-token cap and initial 300-token estimates this requires about
+   $0.894 remaining; measured ledger counts can raise it (see review above). Successful
    sessions atomically save `recordings/benchmark.json`, including puzzles, full
    timestamped event logs, run snapshots and the session's ledger cost. A skipped
    extension still permits saving the completed required steps. Failed/cancelled

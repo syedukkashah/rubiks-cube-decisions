@@ -6,7 +6,6 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.adapters.simulated import SimulatedAdapter, simulation_paths
-from app.budget import estimate_run
 from app.config import CHAT_MODEL
 from app.puzzles import generate_puzzles, generate_scrambles
 from app.recording import RecordedRun, RecordingFile, load_recording, recording_json, replay_run
@@ -100,8 +99,8 @@ class SessionManager:
     def _required_estimate(self):
         return sum(
             (
-                estimate_run(
-                    self.settings, RunConfig(puzzle_ids=[str(i) for i in range(step.count)])
+                self.service.ledger.estimate_run(
+                    RunConfig(puzzle_ids=[str(i) for i in range(step.count)])
                 )
                 for step in PLAN[:2]
             ),
@@ -340,7 +339,9 @@ class SessionManager:
             reasons.append("run_aborted")
         if (
             next_step is not None
-            and estimate_run(self.settings, self.service.runs[next_step.run_id].snapshot.config)
+            and self.service.ledger.estimate_run(
+                self.service.runs[next_step.run_id].snapshot.config
+            )
             > self.service.ledger.remaining
         ):
             reasons.append("budget")

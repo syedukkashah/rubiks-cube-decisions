@@ -27,14 +27,27 @@ def per_call_cost(
     ) / 1000000
 
 
-def estimate_run(settings: Settings, config) -> Decimal:
+def estimate_run(settings: Settings, config, input_token_estimates=None) -> Decimal:
+    input_token_estimates = input_token_estimates or {}
     attempts = min(
         config.max_moves + settings.max_trial_retries, config.max_moves * (config.max_retries + 1)
     )
     return (
         len(config.puzzle_ids)
         * attempts
-        * sum((per_call_cost(settings, model) for model in config.model_ids), Decimal(0))
+        * sum(
+            (
+                per_call_cost(
+                    settings,
+                    model,
+                    max(
+                        INPUT_TOKEN_ESTIMATE, input_token_estimates.get(model, INPUT_TOKEN_ESTIMATE)
+                    ),
+                )
+                for model in config.model_ids
+            ),
+            Decimal(0),
+        )
     )
 
 
@@ -50,7 +63,22 @@ class SpendLedger:
                 cost = Decimal(str(row["cost_usd"]))
                 if not cost.is_finite() or cost < 0 or row["model_id"] not in PRICES:
                     raise ValueError("Invalid spend ledger; refusing to reset budget")
+                tokens = row.get("input_tokens")
+                if tokens is not None and (type(tokens) is not int or tokens < 0):
+                    raise ValueError("Invalid ledger input token count; refusing to underestimate")
                 self.rows.append(row)
+
+    @property
+    def input_token_estimates(self):
+        """Historical high-water marks, not a guarantee about future provider overhead."""
+        estimates = dict.fromkeys(PRICES, INPUT_TOKEN_ESTIMATE)
+        for row in self.rows:
+            model = row["model_id"]
+            estimates[model] = max(estimates[model], row.get("input_tokens") or 0)
+        return estimates
+
+    def estimate_run(self, config):
+        return estimate_run(self.settings, config, self.input_token_estimates)
 
     @property
     def spent_usd(self):
@@ -71,7 +99,8 @@ class SpendLedger:
 
     async def reserve(self, run_id: str, trial_id: str, model_id: str):
         async with self.lock:
-            estimate = per_call_cost(self.settings, model_id)
+            input_tokens = self.input_token_estimates[model_id]
+            estimate = per_call_cost(self.settings, model_id, input_tokens)
             if (
                 self.spent_usd >= Decimal(str(self.settings.max_spend_usd))
                 or estimate > self.remaining
@@ -86,7 +115,7 @@ class SpendLedger:
                     "run_id": run_id,
                     "trial_id": trial_id,
                     "model_id": model_id,
-                    "input_tokens": INPUT_TOKEN_ESTIMATE,
+                    "input_tokens": input_tokens,
                     "output_tokens": self.settings.chat_max_tokens if model_id == CHAT_MODEL else 0,
                     "reasoning_tokens": None,
                     "cost_usd": float(estimate),
@@ -108,7 +137,11 @@ class SpendLedger:
                 per_call_cost(
                     self.settings,
                     old["model_id"],
-                    max(INPUT_TOKEN_ESTIMATE, usage.input_tokens or 0),
+                    max(
+                        self.input_token_estimates[old["model_id"]],
+                        old.get("input_tokens") or 0,
+                        usage.input_tokens or 0,
+                    ),
                     max(old["output_tokens"], usage.output_tokens or 0),
                 )
                 if estimated

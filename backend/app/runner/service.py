@@ -7,7 +7,7 @@ from time import perf_counter
 from uuid import uuid4
 
 from app.adapters.base import Adapter, UpstreamFailure, scrub
-from app.budget import BudgetExceeded, estimate_run
+from app.budget import BudgetExceeded
 from app.config import Settings
 from app.engine import MOVES, apply_move, is_solved
 from app.runner.calls import call_model
@@ -139,7 +139,7 @@ class BenchmarkService:
                             },
                         )
                 async with self.ledger.lock:
-                    cost = estimate_run(self.settings, config)
+                    cost = self.ledger.estimate_run(config)
                     if cost > self.ledger.remaining:
                         raise RunConflict(
                             "Run exceeds remaining live budget",

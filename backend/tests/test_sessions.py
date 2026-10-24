@@ -530,18 +530,22 @@ async def test_each_gate_in_isolation(settings, reason):
             for _ in range(5)
         ]
         if reason == "cost_over_expected":
-            mgr.service.ledger.rows = [{"run_id": step.run_id, "cost_usd": 0.046}]
+            mgr.service.ledger.rows = [
+                {"run_id": step.run_id, "model_id": CHAT_MODEL, "cost_usd": 0.046}
+            ]
         elif reason == "opus_truncation":
             run.call_metrics[0]["finish_reason"] = "length"
             run.call_metrics[1]["empty_content"] = True
         elif reason == "run_aborted":
             run.snapshot.status = "failed"
         elif reason == "budget":
-            mgr.service.ledger.rows = [{"run_id": "previous", "cost_usd": 0.4}]
+            mgr.service.ledger.rows = [
+                {"run_id": "previous", "model_id": CHAT_MODEL, "cost_usd": 0.4}
+            ]
         else:
             run.call_metrics[0]["finish_reason"] = "length"  # Exactly 20% passes.
             mgr.service.ledger.rows = [
-                {"run_id": step.run_id, "cost_usd": 0.045}
+                {"run_id": step.run_id, "model_id": CHAT_MODEL, "cost_usd": 0.045}
             ]  # Exactly 1.5x passes.
         gate = mgr.gate(step, following)
         assert gate.reasons == ([reason] if reason else [])
