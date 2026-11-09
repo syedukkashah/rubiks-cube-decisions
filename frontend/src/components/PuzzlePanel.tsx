@@ -4,6 +4,7 @@ import { trialLook } from '../lib/status';
 import type { RunState } from '../state/runReducer';
 import { trialFor } from '../state/selectors';
 import { CubeNet } from './CubeNet';
+import { MoveText } from './MoveText';
 
 export interface PuzzlePanelProps {
   state: RunState;
@@ -39,13 +40,16 @@ export function PuzzlePanel({
   const facelets = puzzle?.facelets ?? fallbackFacelets ?? '';
   const puzzleIds = config?.puzzle_ids ?? [];
   const modelIds = config?.model_ids ?? [];
+  const headNote = seed !== null ? `seed ${seed}` : (shownPuzzleId ?? '—');
 
   return (
     <aside className="puzzle-col">
       <section className="panel" aria-label="Shared scramble">
         <div className="panel__head">
           <h2 className="eyebrow">Shared scramble</h2>
-          <span className="mono small muted">{seed !== null ? `seed ${seed}` : (shownPuzzleId ?? '—')}</span>
+          <span className="panel__meta mono small muted" title={headNote}>
+            {headNote}
+          </span>
         </div>
         <div className="puzzle-net">
           <CubeNet facelets={facelets} size={286} label={`Scrambled cube net, ${shownPuzzleId ?? ''}`} />
@@ -56,7 +60,7 @@ export function PuzzlePanel({
             {puzzle ? (
               puzzle.scramble_moves.map((m, i) => (
                 <span className="move-chip" key={i}>
-                  {m}
+                  <MoveText move={m} />
                 </span>
               ))
             ) : (
@@ -95,13 +99,19 @@ export function PuzzlePanel({
             </button>
           </div>
           <table className="mini-matrix">
+            <colgroup>
+              <col className="mini-matrix__id-col" />
+              {modelIds.map((id) => (
+                <col key={id} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 <th scope="col">
                   <span className="sr-only">Puzzle</span>
                 </th>
                 {modelIds.map((id) => (
-                  <th scope="col" key={id} style={{ color: modelColor(id) }}>
+                  <th scope="col" key={id} style={{ color: modelColor(id) }} title={models[id]?.label ?? id}>
                     {shortLabel(models[id]?.label ?? id)}
                   </th>
                 ))}
@@ -111,8 +121,14 @@ export function PuzzlePanel({
               {puzzleIds.map((pid) => (
                 <tr key={pid} className={pid === shownPuzzleId ? 'is-shown' : undefined}>
                   <th scope="row">
-                    <button type="button" className="link-button mono" aria-pressed={focusPuzzleId === pid} onClick={() => onFocus(pid)}>
-                      {pid}
+                    <button
+                      type="button"
+                      className="link-button mono"
+                      aria-pressed={focusPuzzleId === pid}
+                      title={pid}
+                      onClick={() => onFocus(pid)}
+                    >
+                      <span className="ellipsis">{pid}</span>
                     </button>
                   </th>
                   {modelIds.map((mid) => {
@@ -141,7 +157,7 @@ export function PuzzlePanel({
               ))}
             </tbody>
           </table>
-          <span className="muted tiny">Number = moves used when solved · ✓ marks the BFS optimum</span>
+          <span className="mini-matrix__note muted tiny">Number = moves used when solved · ✓ marks the BFS optimum</span>
         </section>
       )}
     </aside>

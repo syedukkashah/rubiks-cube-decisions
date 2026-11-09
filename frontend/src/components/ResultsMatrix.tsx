@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { ModelInfo, Puzzle, RunStatus, Trial } from '../api/types';
 import { formatGap, formatSeconds } from '../lib/format';
 import { modelColor } from '../lib/modelColors';
@@ -60,8 +61,8 @@ export function ResultsMatrix({ state, models, puzzles, selectedPuzzleId, onSele
               return (
                 <tr key={pid} className={selectedPuzzleId === pid ? 'is-selected' : undefined} onClick={() => onSelect(pid)}>
                   <th scope="row">
-                    <button type="button" className="link-button mono" onClick={() => onSelect(pid)}>
-                      {pid}
+                    <button type="button" className="link-button mono matrix__id" title={pid} onClick={() => onSelect(pid)}>
+                      <span className="ellipsis">{pid}</span>
                     </button>
                   </th>
                   <td className="mono muted">{opt ?? 'n/a'}</td>
@@ -103,18 +104,19 @@ export function ResultsMatrix({ state, models, puzzles, selectedPuzzleId, onSele
 
 const VERDICT = { solved: 'Solved', move_limit: 'Move limit reached', error: 'Error' } as const;
 
-function verdictDetail(t: Trial, maxMoves: number | null): string {
+/** The card's detail line as separate facts, so it can only break between them. */
+function verdictFacts(t: Trial, maxMoves: number | null): string[] {
   switch (t.status) {
     case 'solved':
       return t.optimal_distance !== null
-        ? `${t.moves_used} moves · optimum ${t.optimal_distance} · gap ${formatGap(t.optimality_gap)}`
-        : `${t.moves_used} moves · ${formatSeconds(t.total_time_s)}`;
+        ? [`${t.moves_used} moves`, `optimum ${t.optimal_distance}`, `gap ${formatGap(t.optimality_gap)}`]
+        : [`${t.moves_used} moves`, formatSeconds(t.total_time_s)];
     case 'move_limit':
-      return `${t.moves_used} / ${maxMoves ?? t.moves_used} moves · not solved`;
+      return [`${t.moves_used} / ${maxMoves ?? t.moves_used} moves`, 'not solved'];
     case 'error':
-      return `${t.error?.code ?? 'error'} · ${t.moves_used} ${t.moves_used === 1 ? 'move' : 'moves'} applied`;
+      return [t.error?.code ?? 'error', `${t.moves_used} ${t.moves_used === 1 ? 'move' : 'moves'} applied`];
     default:
-      return `${t.moves_used} moves so far`;
+      return [`${t.moves_used} moves so far`];
   }
 }
 
@@ -131,15 +133,15 @@ export function FinalStates({ state, models, puzzleId, onSelect }: FinalStatesPr
   const modelIds = state.config?.model_ids ?? [];
   if (!puzzleIds.length) return null;
   return (
-    <section className="panel" aria-labelledby="final-heading">
+    <section className="panel final-states" aria-labelledby="final-heading">
       <div className="panel__head">
         <h2 id="final-heading" className="eyebrow">
           Final state per puzzle
         </h2>
-        <div className="seg seg--mono" role="tablist" aria-label="Puzzle">
+        <div className="seg seg--mono final-tabs" role="tablist" aria-label="Puzzle">
           {puzzleIds.map((pid) => (
-            <button key={pid} type="button" role="tab" aria-selected={pid === puzzleId} onClick={() => onSelect(pid)}>
-              {pid}
+            <button key={pid} type="button" role="tab" aria-selected={pid === puzzleId} title={pid} onClick={() => onSelect(pid)}>
+              <span className="ellipsis">{pid}</span>
             </button>
           ))}
         </div>
@@ -156,12 +158,19 @@ export function FinalStates({ state, models, puzzleId, onSelect }: FinalStatesPr
               <div className="final-card__top">
                 <CubeNet facelets={t.current_facelets} size={128} label={`${label} final cube on ${t.puzzle_id}`} />
                 <div className="final-card__text">
-                  <span className="final-card__model">
+                  <span className="final-card__model" title={label}>
                     <span className="swatch" style={{ background: modelColor(mid) }} aria-hidden="true" />
-                    {label}
+                    <span className="ellipsis">{label}</span>
                   </span>
                   <span className={`final-card__verdict tone-text-${look.tone}`}>{verdict}</span>
-                  <span className="mono small">{verdictDetail(t, state.config?.max_moves ?? null)}</span>
+                  <span className="final-card__detail mono small">
+                    {verdictFacts(t, state.config?.max_moves ?? null).map((fact, i) => (
+                      <Fragment key={i}>
+                        {i > 0 && ' · '}
+                        <span className="final-card__fact">{fact}</span>
+                      </Fragment>
+                    ))}
+                  </span>
                 </div>
               </div>
               <details className="final-card__history">

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { MoveRecord } from '../api/types';
 import { formatConfidence, formatMs, INVALID_REASON_LABEL } from '../lib/format';
 import type { InvalidOutput } from '../state/runReducer';
+import { MoveText } from './MoveText';
 
 export interface MoveHistoryProps {
   moves: MoveRecord[];
@@ -51,7 +52,9 @@ export function MoveHistory({ moves, invalid = [], showConfidence = true, height
             row.kind === 'move' ? (
               <tr key={row.key}>
                 <td className="num muted">{row.move.index}</td>
-                <td className="history__move">{row.move.move}</td>
+                <td className="history__move">
+                  <MoveText move={row.move.move} />
+                </td>
                 <td className="num">{formatMs(row.move.latency_ms)}</td>
                 {showConfidence && <td className="num">{formatConfidence(row.move.confidence)}</td>}
                 <td className="num muted">{row.move.retries}</td>
@@ -62,7 +65,11 @@ export function MoveHistory({ moves, invalid = [], showConfidence = true, height
                 <td colSpan={showConfidence ? 4 : 3}>
                   <span aria-hidden="true">⚠ </span>
                   {INVALID_REASON_LABEL[row.item.reason] ?? row.item.reason} (attempt {row.item.attempt})
-                  {row.item.raw_response && <code className="history__raw">{row.item.raw_response}</code>}
+                  {row.item.raw_response && (
+                    <code className="history__raw">
+                      <MoveText move={row.item.raw_response} />
+                    </code>
+                  )}
                 </td>
               </tr>
             ),

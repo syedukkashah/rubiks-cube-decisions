@@ -13,14 +13,15 @@ import type { StreamStatus } from './state/useRunSession';
 // eslint-disable-next-line react-refresh/only-export-components
 export const ROUTER_FUTURE = { v7_startTransition: true, v7_relativeSplatPath: true } as const;
 
-const STREAM_TEXT: Record<StreamStatus, string> = {
-  idle: 'No run selected',
-  loading: 'Loading run…',
-  connecting: 'Connecting…',
-  live: 'Live · SSE connected',
-  reconnecting: 'Reconnecting…',
-  closed: 'Run complete · stream closed',
-  error: 'Run failed to load',
+/** Stream status text: the main part, and a detail the header drops first when space is tight. */
+const STREAM_TEXT: Record<StreamStatus, [string, string?]> = {
+  idle: ['No run selected'],
+  loading: ['Loading run…'],
+  connecting: ['Connecting…'],
+  live: ['Live', 'SSE connected'],
+  reconnecting: ['Reconnecting…'],
+  closed: ['Run complete', 'stream closed'],
+  error: ['Run failed to load'],
 };
 
 /** Query string that keeps the selected session/run when moving between views. */
@@ -64,6 +65,7 @@ function Header() {
     { key: 'slide', label: 'Slide', to: hasRun ? `/slide?${sel.toString()}` : '/slide' },
   ];
   const streaming = status.stream === 'live' || status.stream === 'connecting' || status.stream === 'reconnecting';
+  const [streamText, streamMore] = STREAM_TEXT[status.stream];
 
   return (
     <header className="appbar">
@@ -85,18 +87,22 @@ function Header() {
           ),
         )}
       </nav>
-      <div className="appbar__spacer" />
-      {status.stage !== 'setup' && (
-        <span className={`stream stream--${status.stream}`}>
-          <span className={`stream__dot ${streaming ? 'pulse' : ''}`} aria-hidden="true" />
-          {STREAM_TEXT[status.stream]}
+      <div className="appbar__end">
+        {status.stage !== 'setup' && (
+          <span className={`stream stream--${status.stream}`} title={streamMore ? `${streamText} · ${streamMore}` : streamText}>
+            <span className={`stream__dot ${streaming ? 'pulse' : ''}`} aria-hidden="true" />
+            <span className="ellipsis">
+              {streamText}
+              {streamMore && <span className="stream__more"> · {streamMore}</span>}
+            </span>
+          </span>
+        )}
+        {status.session && <SourceChip session={status.session} />}
+        <span className={`mode mode--${api.mode}`} title={api.mode === 'mock' ? 'VITE_USE_MOCKS=true: fixtures, no backend' : 'Connected to the backend API'}>
+          {api.mode === 'mock' ? 'MOCK DATA' : 'BACKEND'}
         </span>
-      )}
-      {status.session && <SourceChip session={status.session} />}
-      <span className={`mode mode--${api.mode}`} title={api.mode === 'mock' ? 'VITE_USE_MOCKS=true: fixtures, no backend' : 'Connected to the backend API'}>
-        {api.mode === 'mock' ? 'MOCK DATA' : 'BACKEND'}
-      </span>
-      <IdentityBadge name={config.studentName} roll={config.studentRoll} />
+        <IdentityBadge name={config.studentName} roll={config.studentRoll} />
+      </div>
     </header>
   );
 }

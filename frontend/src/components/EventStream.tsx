@@ -1,7 +1,8 @@
-import type { ModelInfo, RunEvent, Trial } from '../api/types';
+import { isTerminalRun, type ModelInfo, type RunEvent, type RunStatus, type Trial } from '../api/types';
 import { formatConfidence, formatMs, formatSeconds, INVALID_REASON_LABEL } from '../lib/format';
 import { modelColor } from '../lib/modelColors';
 import { trialLook } from '../lib/status';
+import { MoveText } from './MoveText';
 
 const SHOWN = 6;
 
@@ -37,10 +38,12 @@ export interface EventStreamProps {
   events: RunEvent[];
   trials: Record<string, Trial>;
   models: Record<string, ModelInfo>;
+  /** Tells "no events yet" apart from "the run was already over when this view opened". */
+  runStatus?: RunStatus | null;
 }
 
 /** The last SSE events as they were applied, newest on top; older lines fade. */
-export function EventStream({ events, trials, models }: EventStreamProps) {
+export function EventStream({ events, trials, models, runStatus = null }: EventStreamProps) {
   return (
     <section className="panel events" aria-label="Event stream">
       <div className="panel__head">
@@ -59,16 +62,25 @@ export function EventStream({ events, trials, models }: EventStreamProps) {
                 : e.type === 'trial_started' || e.type === 'move_requested'
                   ? 'muted'
                   : 'plain';
+          const detail = detailOf(e);
           return (
             <li key={e.seq} className="events__row" style={{ opacity: 1 - i * 0.12 }}>
               <span className="muted">#{e.seq}</span>
               <span className={`events__type tone-text-${tone}`}>{e.type === 'unknown' ? 'unknown event' : e.type}</span>
               <span style={{ color: modelId ? modelColor(modelId) : undefined }}>{modelId ? (models[modelId]?.label ?? modelId) : 'run'}</span>
-              <span className="events__detail">{detailOf(e)}</span>
+              <span className="events__detail" title={detail || undefined}>
+                <MoveText move={detail} />
+              </span>
             </li>
           );
         })}
-        {events.length === 0 && <li className="muted small">Waiting for the first event…</li>}
+        {events.length === 0 && (
+          <li className="muted small">
+            {runStatus && isTerminalRun(runStatus)
+              ? `No live events in this view: the run had already ${runStatus} when it was opened.`
+              : 'Waiting for the first event…'}
+          </li>
+        )}
       </ol>
     </section>
   );

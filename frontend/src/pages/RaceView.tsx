@@ -57,9 +57,14 @@ export function RaceView(props: RaceViewProps) {
       <section className="title-row">
         <div className="title-row__main">
           <span className="eyebrow">{kicker}</span>
-          <h1>
+          <h1 className="title-row__single">
             {index >= 0 ? `Puzzle ${index + 1} of ${puzzleIds.length}` : 'Loading run…'}
-            {shownPuzzleId && <span className="muted"> · {shownPuzzleId}</span>}
+            {shownPuzzleId && (
+              <span className="muted" title={shownPuzzleId}>
+                {' '}
+                · {shownPuzzleId}
+              </span>
+            )}
           </h1>
         </div>
         <TrialBar trials={trials} total={progress.total} runStatus={state.status} />
@@ -124,7 +129,7 @@ export function RaceView(props: RaceViewProps) {
         </section>
       </div>
 
-      <EventStream events={state.recentEvents} trials={state.trials} models={models} />
+      <EventStream events={state.recentEvents} trials={state.trials} models={models} runStatus={state.status} />
     </div>
   );
 }

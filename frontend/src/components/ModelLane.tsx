@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isTerminalRun, isTerminalTrial, type ModelInfo, type ModelStats, type RunStatus, type Trial } from '../api/types';
 import { formatConfidence, formatGap, formatMs, formatSeconds, INVALID_REASON_LABEL } from '../lib/format';
 import { modelColor } from '../lib/modelColors';
@@ -6,6 +6,7 @@ import { trialLook } from '../lib/status';
 import type { InvalidOutput, TrialLive } from '../state/runReducer';
 import { invalidForNextMove } from '../state/selectors';
 import { CubeNet } from './CubeNet';
+import { MoveText } from './MoveText';
 
 export interface ModelLaneProps {
   modelId: string;
@@ -45,6 +46,81 @@ function chipsOf(trial: Trial, invalid: InvalidOutput[]): Chip[] {
       }),
     ),
   ].sort((a, b) => a.order - b.order);
+}
+
+/**
+ * How many of the newest chips fit whole on the one-line strip, leaving room for the "+N" counter.
+ * Every candidate chip stays rendered (the ones that do not fit out of flow, see `.chips > [data-off]`)
+ * so all of them can be measured again when the strip resizes or the web fonts arrive.
+ * null = not measured (no layout, e.g. jsdom): show every candidate.
+ */
+function useChipFit(strip: RefObject<HTMLDivElement>, total: number, signature: string): number | null {
+  const [fit, setFit] = useState<number | null>(null);
+
+  const measure = useCallback(() => {
+    const el = strip.current;
+    const room = el?.clientWidth ?? 0;
+    if (!el || room <= 0) return;
+    const chips = Array.from(el.querySelectorAll<HTMLElement>(':scope > [data-chip]'));
+    if (chips.length === 0) {
+      setFit(null);
+      return;
+    }
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+    // Width of the "+N" counter for a given N, measured with a throwaway node in the strip.
+    const moreWidth = (n: number) => {
+      const probe = document.createElement('span');
+      probe.className = 'chips__more';
+      probe.setAttribute('data-off', '');
+      probe.textContent = `+${n}`;
+      el.appendChild(probe);
+      const w = probe.getBoundingClientRect().width;
+      probe.remove();
+      return w;
+    };
+    let used = 0;
+    let shown = 0;
+    for (let i = chips.length - 1; i >= 0; i--) {
+      const next = used + (shown > 0 ? gap : 0) + chips[i]!.getBoundingClientRect().width;
+      const left = total - (shown + 1);
+      const reserve = left > 0 ? moreWidth(left) + gap : 0;
+      // The newest chip is always shown; older ones only while they fit whole.
+      if (shown > 0 && next + reserve > room + 0.5) break;
+      used = next;
+      shown += 1;
+    }
+    setFit(shown);
+  }, [strip, total]);
+
+  useLayoutEffect(() => {
+    measure();
+  }, [measure, signature]);
+
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    let alive = true;
+    let width = el.clientWidth;
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            if (el.clientWidth === width) return;
+            width = el.clientWidth;
+            measure();
+          });
+    observer?.observe(el);
+    // Chip widths change once JetBrains Mono replaces the fallback font.
+    void document.fonts?.ready.then(() => {
+      if (alive) measure();
+    });
+    return () => {
+      alive = false;
+      observer?.disconnect();
+    };
+  }, [strip, measure]);
+
+  return fit;
 }
 
 const secondsSince = (ts: string | null, now: number): number | null => {
@@ -122,8 +198,12 @@ function LaneBody({
   const used = trial.moves_used;
   const limit = maxMoves ?? 30;
   const chips = chipsOf(trial, live?.invalid ?? []);
-  const shown = chips.slice(-CHIPS_SHOWN);
-  const hidden = chips.length - shown.length;
+  const candidates = chips.slice(-CHIPS_SHOWN);
+  const strip = useRef<HTMLDivElement>(null);
+  const fit = useChipFit(strip, chips.length, `${trial.trial_id}|${chips.map((c) => c.key).join(',')}`);
+  const shownCount = fit === null ? candidates.length : Math.min(fit, candidates.length);
+  const firstShown = candidates.length - shownCount;
+  const hidden = chips.length - shownCount;
   const terminal = isTerminalTrial(trial.status);
   const trialSeconds = terminal ? trial.total_time_s : trial.status === 'running' ? secondsSince(trial.started_at, now) : null;
   const confidence = lastMove?.confidence ?? null;
@@ -134,12 +214,14 @@ function LaneBody({
       <div className="lane__stage">
         <CubeNet facelets={trial.current_facelets} highlightFace={lastMove?.move[0] ?? null} size={190} label={`${label} cube after ${used} moves`} />
         <div className="lane__now">
-          <div className="lane__move-row">
+          <div className="lane__move">
             <span className="lane__move-label">Current move</span>
-            <span key={`${trial.trial_id}-${used}`} className={`lane__glyph pop ${lastMove ? '' : 'is-empty'}`} aria-live="polite">
-              {lastMove ? lastMove.move : '—'}
-            </span>
-            <span className="lane__caption mono">{terminal ? `${used} moves` : `next: move ${used + 1}`}</span>
+            <div className="lane__move-row">
+              <span key={`${trial.trial_id}-${used}`} className={`lane__glyph pop ${lastMove ? '' : 'is-empty'}`} aria-live="polite">
+                {lastMove ? <MoveText move={lastMove.move} /> : '—'}
+              </span>
+              <span className="lane__caption mono">{terminal ? `${used} moves` : `next: move ${used + 1}`}</span>
+            </div>
           </div>
           <dl className="lane__metrics">
             <div>
@@ -180,20 +262,31 @@ function LaneBody({
         </div>
       </div>
 
-      <div className="chips" aria-label="Move history">
-        {hidden > 0 && <span className="chips__more">+{hidden}</span>}
-        {shown.map((c, i) =>
-          c.kind === 'move' ? (
-            <span key={c.key} className={`chip-move ${i === shown.length - 1 ? 'is-latest' : ''}`} title={c.title}>
+      <div className="chips" aria-label="Move history" ref={strip}>
+        {hidden > 0 && (
+          <span className="chips__more" title={`${hidden} earlier ${hidden === 1 ? 'entry' : 'entries'} not shown`}>
+            +{hidden}
+          </span>
+        )}
+        {candidates.map((c, i) => {
+          const off = i < firstShown || undefined;
+          return c.kind === 'move' ? (
+            <span
+              key={c.key}
+              data-chip=""
+              data-off={off}
+              className={`chip-move ${i === candidates.length - 1 ? 'is-latest' : ''}`}
+              title={c.title}
+            >
               <span className="chip-move__n">{c.n}</span>
-              {c.label}
+              <MoveText move={c.label} />
             </span>
           ) : (
-            <span key={c.key} className="chip-move chip-move--invalid" title={c.title}>
-              {c.label}
+            <span key={c.key} data-chip="" data-off={off} className="chip-move chip-move--invalid" title={c.title}>
+              <MoveText move={c.label} />
             </span>
-          ),
-        )}
+          );
+        })}
         {chips.length === 0 && <span className="muted small">No moves yet</span>}
       </div>
 

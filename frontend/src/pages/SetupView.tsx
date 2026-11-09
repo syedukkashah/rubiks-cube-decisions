@@ -1,8 +1,8 @@
 import type { BenchmarkInfo, CreateSessionRequest, ModelInfo, RunSummary } from '../api/types';
 import { OneClickBenchmark } from '../components/OneClickBenchmark';
 import { RunControls, type BenchmarkRequest } from '../components/RunControls';
-import { formatTime } from '../lib/format';
-import { runLook } from '../lib/status';
+import { formatShortTime, formatTime } from '../lib/format';
+import { runLook, type Tone } from '../lib/status';
 
 export interface SetupViewProps {
   info: BenchmarkInfo | null;
@@ -15,6 +15,48 @@ export interface SetupViewProps {
   onStartRun: (req: BenchmarkRequest) => void;
   onOpenRun: (runId: string) => void;
   onOpenSession: (sessionId: string) => void;
+}
+
+interface RunRowProps {
+  id: string;
+  kind: 'run' | 'session';
+  tone: Tone;
+  pulse?: boolean;
+  meta: string;
+  /** Tooltip for the meta line, e.g. with the full timestamp. */
+  metaTitle?: string;
+  onOpen: () => void;
+}
+
+/**
+ * A previous run or session. The ID is plain text cut with an ellipsis (full ID in its tooltip, still
+ * selectable and copyable) and "Open" has its own column, so the two never overlap. A click elsewhere
+ * on the row opens it too; keyboard users get the Open button.
+ */
+function RunRow({ id, kind, tone, pulse = false, meta, metaTitle, onOpen }: RunRowProps) {
+  return (
+    <li
+      className="run-row"
+      onClick={(e) => {
+        // Clicks on the ID select it for copying; the Open button handles its own clicks.
+        if ((e.target as Element).closest('.run-row__id, .run-row__open')) return;
+        onOpen();
+      }}
+    >
+      <span className={`dot tone-bg-${tone} ${pulse ? 'pulse' : ''}`} aria-hidden="true" />
+      <span className="run-row__text">
+        <span className="run-row__id ellipsis mono strong" title={id}>
+          {id}
+        </span>
+        <span className="ellipsis muted small" title={metaTitle ?? meta}>
+          {meta}
+        </span>
+      </span>
+      <button type="button" className="run-row__open" aria-label={`Open ${kind} ${id}`} onClick={onOpen}>
+        Open
+      </button>
+    </li>
+  );
 }
 
 /** Setup (design: Setup): the one-click benchmark first, a custom single run as the advanced path. */
@@ -62,7 +104,9 @@ export function SetupView({ info, models, runs, lastSessionId, busy, phaseLabel,
               </div>
               <div>
                 <dt>Shortest solution</dt>
-                <dd>Exact (BFS) for warm-up and primary</dd>
+                <dd>
+                  Exact (BFS) for <span className="nowrap">warm-up</span> and primary
+                </dd>
               </div>
               <div>
                 <dt>Fair play</dt>
@@ -76,33 +120,36 @@ export function SetupView({ info, models, runs, lastSessionId, busy, phaseLabel,
               Previous runs
             </h2>
             {lastSessionId && (
-              <button type="button" className="run-row" onClick={() => onOpenSession(lastSessionId)}>
-                <span className="dot tone-bg-run" aria-hidden="true" />
-                <span className="run-row__text">
-                  <span className="mono strong">{lastSessionId}</span>
-                  <span className="muted small">Last one-click session in this browser</span>
-                </span>
-                <span className="small">Open</span>
-              </button>
+              <ul className="run-list" aria-label="Last one-click session">
+                <RunRow
+                  id={lastSessionId}
+                  kind="session"
+                  tone="run"
+                  meta="Last one-click session in this browser"
+                  onOpen={() => onOpenSession(lastSessionId)}
+                />
+              </ul>
             )}
             {runs?.length === 0 && !lastSessionId && <span className="muted small">No runs yet.</span>}
-            <div className="run-list">
-              {runs?.slice(0, 12).map((r) => {
-                const look = runLook(r.status);
-                return (
-                  <button key={r.run_id} type="button" className="run-row" onClick={() => onOpenRun(r.run_id)}>
-                    <span className={`dot tone-bg-${look.tone} ${look.pulse ? 'pulse' : ''}`} aria-hidden="true" />
-                    <span className="run-row__text">
-                      <span className="mono strong">{r.run_id}</span>
-                      <span className="muted small">
-                        {look.label} · {formatTime(r.created_at)}
-                      </span>
-                    </span>
-                    <span className="small">Open</span>
-                  </button>
-                );
-              })}
-            </div>
+            {runs && runs.length > 0 && (
+              <ul className="run-list" aria-label="Previous runs">
+                {runs.slice(0, 12).map((r) => {
+                  const look = runLook(r.status);
+                  return (
+                    <RunRow
+                      key={r.run_id}
+                      id={r.run_id}
+                      kind="run"
+                      tone={look.tone}
+                      pulse={look.pulse}
+                      meta={`${look.label} · ${formatShortTime(r.created_at)}`}
+                      metaTitle={`${look.label} · ${formatTime(r.created_at)}`}
+                      onOpen={() => onOpenRun(r.run_id)}
+                    />
+                  );
+                })}
+              </ul>
+            )}
           </section>
         </aside>
       </div>

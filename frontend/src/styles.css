@@ -85,6 +85,22 @@ h3 {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
+/* Move primes (R', U'): JetBrains Mono gives the apostrophe a full character cell, so "R'" reads
+   as "R '". Pull the prime against its letter so the move reads as one token (MoveText); the text
+   itself stays the backend's "R'". */
+.move__prime {
+  margin-left: -0.2em;
+}
+.nowrap {
+  white-space: nowrap;
+}
+/* One line, cut with an ellipsis; pair it with a title that carries the full text. */
+.ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .strong {
   font-weight: 700;
 }
@@ -536,7 +552,7 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 22px;
+  gap: 10px 20px;
   padding: 12px 28px;
   background: rgba(14, 15, 17, 0.96);
   backdrop-filter: blur(6px);
@@ -546,6 +562,8 @@ h3 {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: none;
+  white-space: nowrap;
 }
 .appbar__name {
   font-weight: 700;
@@ -580,8 +598,40 @@ h3 {
   color: var(--faint);
   cursor: not-allowed;
 }
-.appbar__spacer {
-  flex: 1 1 0;
+/* Stream status, source, mode and the student badge, pushed to the right. */
+.appbar__end {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  min-width: 0;
+}
+/* Desktop: brand, views and status share one row. When it gets tight the status texts give way
+   (ellipsis, full text in their tooltips); the student badge never shrinks or wraps. */
+@media (min-width: 1024px) {
+  .appbar {
+    flex-wrap: nowrap;
+  }
+  .appbar__nav {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+  .appbar__end {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+  }
+}
+@media (max-width: 1499px) {
+  .appbar__sub {
+    display: none;
+  }
+}
+@media (max-width: 1365px) {
+  .stream__more {
+    display: none;
+  }
 }
 .shell__main {
   display: block;
@@ -591,10 +641,12 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   color: var(--muted);
   font-size: 13px;
 }
 .stream__dot {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 99px;
@@ -627,7 +679,14 @@ h3 {
   font-weight: 700;
   white-space: nowrap;
 }
+.source {
+  min-width: 0;
+}
+.mode {
+  flex: none;
+}
 .source__dot {
+  flex: none;
   width: 7px;
   height: 7px;
   border-radius: 99px;
@@ -659,10 +718,13 @@ h3 {
   background: var(--run-bg);
 }
 
+/* Name and roll render exactly as configured: no text-transform, never shrunk, wrapped or clipped. */
 .identity {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: none;
+  white-space: nowrap;
   background: var(--badge-bg);
   color: var(--badge-fg);
   border-radius: 10px;
@@ -692,6 +754,7 @@ h3 {
   border: 3px solid #ff3b30;
   font-size: 12px;
   max-width: 340px;
+  white-space: normal;
 }
 .identity--missing strong {
   font-size: 13px;
@@ -769,6 +832,15 @@ h3 {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+/* Right-hand note of a panel head (e.g. a puzzle ID): stays beside the heading, cut with an ellipsis. */
+.panel__meta {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
 .section-head {
   display: flex;
@@ -1223,30 +1295,36 @@ h3 {
   gap: 12px;
 }
 .facts dt {
+  flex: none;
+  white-space: nowrap;
   color: var(--label);
 }
 .facts dd {
   margin: 0;
+  min-width: 0;
   text-align: right;
+  text-wrap: balance;
 }
 .run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
   max-height: 520px;
   overflow-y: auto;
 }
+/* Previous runs: status dot | ID over status and time | Open. Every row is two single lines high. */
 .run-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  width: 100%;
-  min-height: 44px;
-  padding: 10px 14px;
-  border: 0;
+  min-height: 58px;
+  padding: 10px 8px 10px 14px;
   border-radius: var(--r-control);
   background: var(--raised);
-  text-align: left;
   cursor: pointer;
 }
 .run-row:hover {
@@ -1256,8 +1334,26 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1 1 0;
   min-width: 0;
+}
+/* The ID is plain text: one click selects all of it for copying (the row does not open from it). */
+.run-row__id {
+  cursor: text;
+  user-select: all;
+}
+.run-row__open {
+  border: 0;
+  padding: 6px;
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.run-row__open:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ---------- race + results title row ---------- */
@@ -1285,6 +1381,12 @@ h3 {
 }
 .title-row h1 .muted {
   font-weight: 500;
+}
+/* A title that ends in an ID: keep it on one line and cut the ID, never the "Puzzle n of N" part. */
+.title-row h1.title-row__single {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .title-row__actions {
   display: flex;
@@ -1471,6 +1573,10 @@ h3 {
   justify-content: center;
   padding: 6px 0;
 }
+.puzzle-net .cube-net {
+  max-width: 100%;
+  height: auto;
+}
 .scramble {
   display: flex;
   flex-direction: column;
@@ -1490,7 +1596,7 @@ h3 {
 }
 .tiles {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(max-content, 1fr));
   gap: 8px;
 }
 .tile {
@@ -1504,6 +1610,7 @@ h3 {
 .tile span {
   font-size: 11px;
   color: var(--label);
+  white-space: nowrap;
 }
 .tile strong {
   font-family: var(--mono);
@@ -1514,6 +1621,8 @@ h3 {
   line-height: 1.5;
   color: var(--muted);
 }
+/* Puzzles × models: the puzzle ID is a row label in its own column (cut with an ellipsis, full ID in
+   its tooltip); the model columns share the rest equally, each under its header. */
 .mini-matrix {
   width: 100%;
   border-collapse: separate;
@@ -1521,17 +1630,29 @@ h3 {
   font-size: 12px;
   table-layout: fixed;
 }
+.mini-matrix__id-col {
+  width: 88px;
+}
 .mini-matrix th {
   font-weight: 600;
   text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mini-matrix th[scope='row'] {
   text-align: left;
-  width: 64px;
+}
+.mini-matrix th[scope='row'] .link-button {
+  display: flex;
+  max-width: 100%;
 }
 .mini-matrix tr.is-shown th[scope='row'] .link-button {
   color: #fff;
   font-weight: 700;
+}
+.mini-matrix__note {
+  text-wrap: balance;
 }
 .mini-matrix td {
   text-align: center;
@@ -1617,17 +1738,25 @@ h3 {
   flex-direction: column;
   gap: 12px;
 }
+/* "Current move" sits on its own line above the glyph; the glyph and its caption share a baseline. */
+.lane__move {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 .lane__move-row {
   display: flex;
   align-items: baseline;
   gap: 14px;
+  min-width: 0;
 }
 .lane__move-label {
-  width: 54px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--label);
 }
 .lane__glyph {
@@ -1644,6 +1773,7 @@ h3 {
 }
 .lane__caption {
   font-size: 13px;
+  white-space: nowrap;
   color: var(--muted);
 }
 .lane__metrics {
@@ -1712,20 +1842,31 @@ h3 {
   transform: translateX(-50%);
   white-space: nowrap;
 }
+/* One line of the newest moves. ModelLane measures the chips and shows only the newest ones that
+   fit whole; the older candidates stay in the DOM out of flow (data-off) so they can be measured,
+   and "+N" counts everything not shown. */
 .chips {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   height: 32px;
   overflow: hidden;
 }
+.chips > [data-off] {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
 .chips__more {
+  flex: none;
   font-size: 12px;
   color: var(--label);
   padding-right: 4px;
   white-space: nowrap;
 }
 .chip-move {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1889,26 +2030,66 @@ h3 {
   gap: 10px;
   transition: border-color 0.3s ease;
 }
+/* Four cards in a row while each keeps a 160px text column beside a net of 104px or more; below
+   that two per row (never 3 + 1), and one per row on narrow screens. */
+.final-states {
+  container: final-states / inline-size;
+}
+@container final-states (max-width: 1299px) {
+  .final-card {
+    flex: 1 1 calc(50% - 8px);
+    max-width: calc(50% - 7px);
+  }
+}
+@container final-states (max-width: 639px) {
+  .final-card {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}
 .final-card__top {
   display: flex;
   align-items: center;
   gap: 16px;
 }
+/* The net gives up width before the text does (it scales; the SVG keeps its aspect ratio). */
+.final-card__top > .cube-net {
+  flex: 0 1 128px;
+  min-width: 72px;
+  height: auto;
+}
 .final-card__text {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 0 160px;
   min-width: 0;
 }
 .final-card__model {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   font-weight: 600;
 }
 .final-card__verdict {
   font-weight: 700;
   font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The detail may need two lines; it breaks only between its "·"-separated facts. */
+.final-card__detail {
+  text-wrap: balance;
+}
+.final-card__fact {
+  white-space: nowrap;
+}
+.final-tabs button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 136px;
 }
 .final-card__history summary {
   cursor: pointer;
@@ -1921,11 +2102,12 @@ h3 {
   gap: 24px;
   align-items: stretch;
 }
+/* The matrix needs ~720px for its six columns; reliability is a narrow four-column table. */
 .results-grid > .panel:first-child {
-  flex: 1 1 560px;
+  flex: 2 1 760px;
 }
 .results-grid > .panel:nth-child(2) {
-  flex: 1 1 380px;
+  flex: 1 1 360px;
 }
 .matrix {
   width: 100%;
@@ -1940,6 +2122,11 @@ h3 {
   font-weight: 600;
   color: var(--label);
   padding: 0 10px;
+  white-space: nowrap;
+}
+.matrix__id {
+  display: inline-flex;
+  max-width: 120px;
 }
 .matrix tbody tr {
   cursor: pointer;
@@ -2134,14 +2321,18 @@ h3 {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
   gap: 14px;
 }
+/* Each card spans three rows of the answers grid (subgrid), so questions, answers and values line
+   up across the cards of a row even when a question takes more lines than its neighbours. */
 .answer {
   background: var(--panel);
   border: 1px solid var(--hairline);
   border-radius: var(--r-panel);
   padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  align-content: start;
+  row-gap: 8px;
 }
 .answer__q {
   font-size: 12px;
@@ -2149,6 +2340,7 @@ h3 {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--label);
+  text-wrap: balance;
 }
 .answer__a {
   font-size: 20px;
@@ -2158,6 +2350,7 @@ h3 {
   font-family: var(--mono);
   font-size: 13px;
   color: var(--text-2);
+  text-wrap: pretty;
 }
 .answer--open {
   border-style: dashed;
@@ -2169,7 +2362,7 @@ h3 {
 
 /* move history table (results cards) */
 .history {
-  overflow-y: auto;
+  overflow: auto;
   margin-top: 8px;
   border-radius: 10px;
   background: var(--ground);
@@ -2182,6 +2375,7 @@ h3 {
 .history__table th,
 .history__table td {
   padding: 5px 10px;
+  white-space: nowrap;
 }
 .history__table thead th {
   position: sticky;
@@ -2321,6 +2515,7 @@ h3 {
   margin: 0;
   font-size: 20px;
   color: var(--muted);
+  text-wrap: balance;
 }
 .slide__empty,
 .slide__partial {

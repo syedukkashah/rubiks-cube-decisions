@@ -53,6 +53,23 @@ export function formatTime(ts: string | null | undefined): string {
   });
 }
 
+/**
+ * Compact timestamp for tight rows and chips, e.g. "Nov 9, 05:58 PM": no seconds, and the year
+ * only when it is not the current one. Pair it with formatTime() in a tooltip for the full value.
+ */
+export function formatShortTime(ts: string | null | undefined, now: Date = new Date()): string {
+  if (!ts) return DASH;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleString(undefined, {
+    ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' as const }),
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export const INVALID_REASON_LABEL: Record<string, string> = {
   illegal_move: 'Illegal move',
   malformed_response: 'Malformed response',
