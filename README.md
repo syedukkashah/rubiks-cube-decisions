@@ -1,4 +1,4 @@
-# rubiks-cube-decisions
+# Demo
 
 
 
