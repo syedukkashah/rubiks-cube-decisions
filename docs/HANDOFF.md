@@ -142,3 +142,12 @@ The human decided (2026-10-25) to spend up to **$2.00 total** on one real live s
 - Backend work: allow `MAX_SPEND_USD` up to 2.00 (default unchanged), pick the largest affordable `CHAT_MAX_TOKENS` (at most 384), add a `report` mode for the Opus truncation gate (default `stop`), keep recording/replay behaviour, `ALLOW_LIVE_RERUN=true` only for the run, then back to false.
 - Not changed: no fallback models, no oracle moves, no coercion of invalid output, cap above 512 still forbidden. Truncations stay counted as Opus failures; the write-up must disclose the cap and the truncations.
 - Root `AGENTS.md` still says 1.10 for the spend cap; update it after the session if the human wants the spec to match.
+
+## 2026-11-09 orchestrator: live session completed, recording saved
+
+Session `sess_d0b98a23c220441f9e8752bfd97def22` (live, cap 512, `LIVE_ADMISSION=rolling`, `OPUS_TRUNCATION_GATE=report`, extension excluded) completed: warm-up and primary both `completed`, gates passed. Session cost $0.422777 (ledger total for the whole assignment ~$0.54 of the $2.00 ceiling). The recording is `backend/recordings/benchmark.json` (+ identical timestamped copy), 24 trials, no keys or auth headers.
+
+- Results: warm-up, Opus solved in 3 moves (the optimum), the other three hit the 30-move limit. Primary (5 puzzles x 4 models): no model solved any puzzle; 19 move-limit results, 1 Luna `upstream_error` (puzzle 2, after 7 moves). Opus truncation 25% in the warm-up, 0.66% in the primary. Report these as measured; do not read them as a ranking beyond the stated cap, effort and prompt.
+- Replay verified: `auto` selects replay, a replay session completes, and the ledger gains no rows. Backend restarted with `MOCK_MODELS=true` and no live overrides (`ALLOW_LIVE_RERUN` off).
+- Disclose in the write-up: $2.00 ceiling and rolling admission (deviation from the $1.20 / G1 1.10 rule), Opus cap 512 with effort `low`, the earlier failed sessions and their cost, and that replay is a re-emission of a recorded run, not a new screen recording.
+- Work now happens only in the main checkout. The `backend-api`, `frontend-ui` and `opus-config` worktrees hold stale ledger copies; do not run anything from them.
